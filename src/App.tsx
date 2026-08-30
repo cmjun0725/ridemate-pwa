@@ -78,8 +78,8 @@ function LoginPanel() {
 }
 
 function MyRides() {
-  const plans = readPlans()
-  return <section className="page"><h1>내 라이딩</h1><p className="sub">이 기기에 저장한 모집 방과 혼자 라이딩 계획입니다.</p><div className="list">{plans.map(plan => <article className="saved-plan" key={plan.id}><span>{plan.purpose === 'solo' ? '혼자 라이딩' : '함께 라이딩'}</span><h3>{plan.title}</h3><p><MapPin size={14}/>{plan.startName}</p><div><b>{plan.distanceKm}km</b><b>상승 {plan.elevationM ? `${plan.elevationM}m` : '수동 입력'}</b></div></article>)}{!plans.length && <p className="empty">아직 저장한 라이딩이 없습니다.<br/>만들기에서 첫 계획을 세워보세요.</p>}</div></section>
+  const [plans, setPlans] = useState(readPlans); const remove = (id: string) => { const next = plans.filter(plan => plan.id !== id); localStorage.setItem('ridemate-plans', JSON.stringify(next)); setPlans(next) }
+  return <section className="page"><h1>내 라이딩</h1><p className="sub">이 기기에 저장한 모집 방과 혼자 라이딩 계획입니다.</p><div className="list">{plans.map(plan => <article className="saved-plan" key={plan.id}><span>{plan.purpose === 'solo' ? '혼자 라이딩' : '함께 라이딩'}</span><button aria-label={`${plan.title} 삭제`} onClick={() => remove(plan.id)}><X size={16}/></button><h3>{plan.title}</h3><p><MapPin size={14}/>{plan.startName}</p><div><b>{plan.distanceKm}km</b><b>상승 {plan.elevationM ? `${plan.elevationM}m` : '수동 입력'}</b></div></article>)}{!plans.length && <p className="empty">아직 저장한 라이딩이 없습니다.<br/>만들기에서 첫 계획을 세워보세요.</p>}</div></section>
 }
 
 export default function App() {

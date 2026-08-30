@@ -22,13 +22,25 @@ const destinationPoint = (origin: Point, distanceKm: number, bearing: number): P
   const lat2 = Math.asin(Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(angle)); const lng2 = lng1 + Math.atan2(Math.sin(angle) * Math.sin(angular) * Math.cos(lat1), Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2))
   return { lat: lat2 * 180 / Math.PI, lng: lng2 * 180 / Math.PI }
 }
+const segmentDistanceKm = (a: number[], b: number[]) => {
+  const radius = 6371; const lat1 = a[1] * Math.PI / 180; const lat2 = b[1] * Math.PI / 180; const deltaLat = lat2 - lat1; const deltaLng = (b[0] - a[0]) * Math.PI / 180
+  const value = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2
+  return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
 const fallbackCandidates = (start: Point, distanceKm: number, tripType: TripType): AiCandidate[] => [35, 155, 275].map((bearing, index) => ({ title: `추천 코스 ${index + 1}`, summary: '도로 연결성과 고도 데이터를 기준으로 생성한 후보입니다.', waypoints: [destinationPoint(start, tripType === 'round' ? distanceKm / 2.4 : distanceKm * 0.78, bearing)] }))
 const callOrs = async (coordinates: Point[]) => {
   const response = await fetch('https://api.openrouteservice.org/v2/directions/cycling-regular/geojson', { method: 'POST', headers: { Authorization: openRouteServiceKey.value(), 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: coordinates.map(point => [point.lng, point.lat]), elevation: true, instructions: false }) })
   if (!response.ok) throw new Error(`ORS ${response.status}`)
   const data = await response.json() as { features?: Array<{ geometry?: { coordinates?: number[][] }; properties?: { summary?: { distance?: number; ascent?: number } } }> }; const route = data.features?.[0]
   if (!route?.geometry?.coordinates || !route.properties?.summary) throw new Error('ORS route missing')
-  return { coordinates: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })), distanceKm: Math.round((route.properties.summary.distance ?? 0) / 100) / 10, elevationM: Math.round(route.properties.summary.ascent ?? 0) }
+  const elevations = route.geometry.coordinates.map(point => point[2]).filter(Number.isFinite)
+  const geometryAscent = elevations.reduce((total, elevation, index) => index === 0 ? 0 : total + Math.max(0, elevation - elevations[index - 1]), 0)
+  const ascent = route.properties.summary.ascent ?? (elevations.length > 1 ? geometryAscent : undefined)
+  if (!Number.isFinite(ascent)) throw new Error('ORS elevation missing')
+  let cumulativeDistance = 0
+  const fullProfile = route.geometry.coordinates.map((point, index) => { if (index) cumulativeDistance += segmentDistanceKm(route.geometry!.coordinates![index - 1], point); return { distanceKm: Math.round(cumulativeDistance * 100) / 100, elevationM: Math.round(point[2]) } })
+  const sampleEvery = Math.max(1, Math.ceil(fullProfile.length / 80)); const elevationProfile = fullProfile.filter((_, index) => index % sampleEvery === 0 || index === fullProfile.length - 1)
+  return { coordinates: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })), distanceKm: Math.round((route.properties.summary.distance ?? 0) / 100) / 10, elevationM: Math.round(ascent!), elevationProfile }
 }
 const enforceRecommendationLimit = async (ip: string) => {
   const key = createHash('sha256').update(ip || 'unknown').digest('hex').slice(0, 32); const ref = db.collection('aiRateLimits').doc(key); const now = Date.now()
@@ -38,7 +50,7 @@ const enforceRecommendationLimit = async (ip: string) => {
 export const recommendCourses = onCall({ region, secrets: [openRouteServiceKey, openRouterKey], timeoutSeconds: 90, memory: '512MiB' }, async request => {
   const { start, startName, distanceKm, uphill, tripType } = request.data as { start?: Point; startName?: string; distanceKm?: number; uphill?: UphillLevel; tripType?: TripType }
   if (!isPoint(start) || !startName || !distanceKm || distanceKm < 5 || distanceKm > 200 || !['low', 'medium', 'high'].includes(uphill ?? '') || !['round', 'oneway'].includes(tripType ?? '')) throw new HttpsError('invalid-argument', '추천 조건을 다시 확인해 주세요.')
-  await enforceRecommendationLimit(request.rawRequest.ip)
+  await enforceRecommendationLimit(request.rawRequest.ip ?? 'unknown')
   const prompt = `대한민국 자전거 라이딩 코스 설계자 역할을 수행하세요. 출발지는 ${startName} (${start!.lat}, ${start!.lng}), 희망 거리는 ${distanceKm}km, 라이딩 유형은 ${tripType === 'round' ? '왕복/순환' : '편도'}, 업힐 선호는 ${uphill}입니다. 실제 자전거가 접근하기 좋은 서로 다른 방향의 후보 3개를 제안하세요. 각 후보의 경유지는 대한민국 범위의 WGS84 좌표여야 합니다. 설명은 한 문장으로 작성하세요.`
   let candidates: AiCandidate[] = []
   try {
@@ -46,8 +58,8 @@ export const recommendCourses = onCall({ region, secrets: [openRouteServiceKey, 
     if (!aiResponse.ok) throw new Error(`OpenRouter ${aiResponse.status}`); const body = await aiResponse.json() as { choices?: Array<{ message?: { content?: string } }> }; const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? '{}') as { candidates?: AiCandidate[] }; candidates = (parsed.candidates ?? []).filter(candidate => candidate.waypoints?.every(isPoint)).slice(0, 3)
   } catch (error) { console.warn('AI candidate generation fallback', error) }
   if (candidates.length < 3) candidates = fallbackCandidates(start!, distanceKm, tripType!)
-  const results = await Promise.allSettled(candidates.map(async (candidate, index) => { const routePoints = [start!, ...candidate.waypoints, ...(tripType === 'round' ? [start!] : [])]; const verified = await callOrs(routePoints); const climbRate = verified.elevationM / Math.max(verified.distanceKm, 1); const target = uphill === 'low' ? 6 : uphill === 'medium' ? 13 : 22; return { id: `candidate-${index + 1}`, title: candidate.title, summary: candidate.summary, ...verified, climbRate: Math.round(climbRate * 10) / 10, distanceDifferenceKm: Math.round(Math.abs(verified.distanceKm - distanceKm) * 10) / 10, verified: true } }))
-  const fulfilled = results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof callOrs>> & Record<string, unknown>> => result.status === 'fulfilled').map(result => result.value)
+  const results = await Promise.allSettled(candidates.map(async (candidate, index) => { const routePoints = [start!, ...candidate.waypoints, ...(tripType === 'round' ? [start!] : [])]; const verified = await callOrs(routePoints); const climbRate = verified.elevationM / Math.max(verified.distanceKm, 1); return { id: `candidate-${index + 1}`, title: candidate.title, summary: candidate.summary, ...verified, climbRate: Math.round(climbRate * 10) / 10, distanceDifferenceKm: Math.round(Math.abs(verified.distanceKm - distanceKm) * 10) / 10, verified: true } }))
+  const fulfilled = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
   if (!fulfilled.length) throw new HttpsError('unavailable', '현재 조건으로 검증 가능한 코스를 찾지 못했습니다. 출발지나 거리를 바꿔 다시 시도해 주세요.')
   return { candidates: fulfilled.sort((a, b) => Number(a.distanceDifferenceKm) - Number(b.distanceDifferenceKm)).slice(0, 3) }
 })

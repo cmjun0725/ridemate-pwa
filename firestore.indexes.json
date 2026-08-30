@@ -1,0 +1,1 @@
+{"indexes":[{"collectionGroup":"rideMembers","queryScope":"COLLECTION","fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"rideAt","order":"DESCENDING"}]},{"collectionGroup":"rides","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"startsAt","order":"ASCENDING"}]}],"fieldOverrides":[]}

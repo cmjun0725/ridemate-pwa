@@ -1,0 +1,8 @@
+export type PlaceKind = '편의점' | '화장실' | '정비소'
+export type RideStatus = '모집중' | '마감' | '완료'
+
+export interface Coordinate { lat: number; lng: number }
+export interface Stop { id: string; name: string; kind: PlaceKind | '휴식'; coordinate: Coordinate; selected?: boolean }
+export interface Course { id: string; title: string; startName: string; endName: string; distanceKm: number; elevationM: number; coordinates: Coordinate[]; stops: Stop[]; createdAt: string }
+export interface Rider { id: string; name: string; avatar?: string; noShowCount: number }
+export interface Ride { id: string; title: string; course: Course; startsAt: string; paceKmh: number; capacity: number; host: Rider; members: Rider[]; status: RideStatus; meetingNote: string }

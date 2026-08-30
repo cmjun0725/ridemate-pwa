@@ -1,1 +1,1 @@
-{"name":"라이드메이트","short_name":"라이드메이트","start_url":"/","display":"standalone","background_color":"#fbfcfa","theme_color":"#0d5f4c","lang":"ko","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{"name":"라이드메이트","short_name":"라이드메이트","start_url":"./","scope":"./","display":"standalone","background_color":"#fbfcfa","theme_color":"#0d5f4c","lang":"ko","icons":[{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}

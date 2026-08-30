@@ -6,3 +6,4 @@ export interface Stop { id: string; name: string; kind: PlaceKind | '휴식'; co
 export interface Course { id: string; title: string; startName: string; endName: string; distanceKm: number; elevationM: number; coordinates: Coordinate[]; stops: Stop[]; createdAt: string }
 export interface Rider { id: string; name: string; avatar?: string; noShowCount: number }
 export interface Ride { id: string; title: string; course: Course; startsAt: string; paceKmh: number; capacity: number; host: Rider; members: Rider[]; status: RideStatus; meetingNote: string }
+export interface RouteCandidate { id: string; title: string; summary: string; distanceKm: number; elevationM: number; climbRate: number; distanceDifferenceKm: number; coordinates: Coordinate[]; verified: boolean }

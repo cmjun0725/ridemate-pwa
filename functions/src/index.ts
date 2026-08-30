@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase-admin/app'
+import { getAuth } from 'firebase-admin/auth'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
 import { HttpsError, onCall } from 'firebase-functions/https'
@@ -9,7 +10,10 @@ import { createHash } from 'node:crypto'
 initializeApp(); const db = getFirestore(); const region = 'asia-northeast3'
 const openRouteServiceKey = defineSecret('OPENROUTESERVICE_API_KEY')
 const openRouterKey = defineSecret('OPENROUTER_API_KEY')
+const adminEmails = defineSecret('ADMIN_EMAILS')
 const requireAuth = (uid?: string) => { if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.') }
+const requireAdmin = (request: { auth?: { token?: Record<string, unknown>; uid?: string } }) => { requireAuth(request.auth?.uid); if (request.auth?.token?.admin !== true) throw new HttpsError('permission-denied', '관리자 권한이 필요합니다.') }
+const audit = (adminId: string, action: string, targetType: string, targetId: string, details: Record<string, unknown> = {}) => db.collection('auditLogs').add({ adminId, action, targetType, targetId, details, createdAt: FieldValue.serverTimestamp() })
 
 type Point = { lat: number; lng: number }
 type TripType = 'round' | 'oneway'
@@ -58,7 +62,7 @@ export const recommendCourses = onCall({ region, secrets: [openRouteServiceKey, 
     if (!aiResponse.ok) throw new Error(`OpenRouter ${aiResponse.status}`); const body = await aiResponse.json() as { choices?: Array<{ message?: { content?: string } }> }; const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? '{}') as { candidates?: AiCandidate[] }; candidates = (parsed.candidates ?? []).filter(candidate => candidate.waypoints?.every(isPoint)).slice(0, 3)
   } catch (error) { console.warn('AI candidate generation fallback', error) }
   if (candidates.length < 3) candidates = fallbackCandidates(start!, distanceKm, tripType!)
-  const results = await Promise.allSettled(candidates.map(async (candidate, index) => { const routePoints = [start!, ...candidate.waypoints, ...(tripType === 'round' ? [start!] : [])]; const verified = await callOrs(routePoints); const climbRate = verified.elevationM / Math.max(verified.distanceKm, 1); return { id: `candidate-${index + 1}`, title: candidate.title, summary: candidate.summary, ...verified, climbRate: Math.round(climbRate * 10) / 10, distanceDifferenceKm: Math.round(Math.abs(verified.distanceKm - distanceKm) * 10) / 10, verified: true } }))
+  const results = await Promise.allSettled(candidates.map(async (candidate, index) => { const routePoints = [start!, ...candidate.waypoints, ...(tripType === 'round' ? [start!] : [])]; const verified = await callOrs(routePoints); const climbRate = verified.elevationM / Math.max(verified.distanceKm, 1); return { id: `candidate-${index + 1}`, title: candidate.title, summary: candidate.summary, startName, ...verified, climbRate: Math.round(climbRate * 10) / 10, distanceDifferenceKm: Math.round(Math.abs(verified.distanceKm - distanceKm) * 10) / 10, verified: true } }))
   const fulfilled = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
   if (!fulfilled.length) throw new HttpsError('unavailable', '현재 조건으로 검증 가능한 코스를 찾지 못했습니다. 출발지나 거리를 바꿔 다시 시도해 주세요.')
   return { candidates: fulfilled.sort((a, b) => Number(a.distanceDifferenceKm) - Number(b.distanceDifferenceKm)).slice(0, 3) }
@@ -96,4 +100,37 @@ export const resolveNoShowVote = onDocumentCreated({ region, document: 'votes/{v
 
 export const notifyVoteOpened = onDocumentCreated({ region, document: 'rides/{rideId}/voteEvents/{eventId}' }, async event => {
   const rideId = event.params.rideId; const members = await db.collection('rideMembers').where('rideId', '==', rideId).get(); const ids = members.docs.map(d => d.data().userId); const tokens = await db.collection('deviceTokens').where('userId', 'in', ids.slice(0, 10)).get(); const values = tokens.docs.map(d => d.data().token).filter(Boolean); if (values.length) await getMessaging().sendEachForMulticast({ tokens: values, notification: { title: '노쇼 확인 투표', body: '라이딩 참여 여부를 확인해 주세요.' }, data: { rideId } });
+})
+
+export const bootstrapAdmin = onCall({ region, secrets: [adminEmails] }, async request => {
+  requireAuth(request.auth?.uid); const email = String(request.auth?.token?.email ?? '').toLowerCase(); const allowed = adminEmails.value().split(',').map(value => value.trim().toLowerCase()).filter(Boolean)
+  if (!email || request.auth?.token?.email_verified !== true || !allowed.includes(email)) throw new HttpsError('permission-denied', '허용된 이메일의 인증 완료 계정만 관리자가 될 수 있습니다.')
+  await getAuth().setCustomUserClaims(request.auth!.uid, { admin: true }); await db.collection('users').doc(request.auth!.uid).set({ email, role: 'admin', status: 'active', updatedAt: FieldValue.serverTimestamp() }, { merge: true }); await audit(request.auth!.uid, 'bootstrap_admin', 'user', request.auth!.uid); return { ok: true }
+})
+
+export const createRidePlan = onCall({ region }, async request => {
+  requireAuth(request.auth?.uid); const data = request.data as { title?: string; purpose?: 'group' | 'solo'; startName?: string; endName?: string; startsAt?: string; distanceKm?: number; elevationM?: number; paceKmh?: number; capacity?: number; description?: string; coordinates?: Point[]; elevationProfile?: Array<{ distanceKm: number; elevationM: number }> }
+  if (!data.title?.trim() || !data.startName?.trim() || !['group', 'solo'].includes(data.purpose ?? '') || !Number.isFinite(data.distanceKm) || data.distanceKm! < 1 || data.distanceKm! > 300) throw new HttpsError('invalid-argument', '라이딩 계획 정보를 확인해 주세요.')
+  const userId = request.auth!.uid; const rideRef = db.collection('rides').doc(); const courseRef = db.collection('courses').doc(); const startsAt = data.startsAt ? new Date(data.startsAt) : new Date()
+  const course = { title: data.title.trim().slice(0, 80), startName: data.startName.trim().slice(0, 100), endName: (data.endName ?? data.startName).trim().slice(0, 100), distanceKm: data.distanceKm, elevationM: Math.max(0, Number(data.elevationM ?? 0)), coordinates: (data.coordinates ?? []).filter(isPoint).slice(0, 3000), elevationProfile: (data.elevationProfile ?? []).slice(0, 120), visibility: data.purpose === 'solo' ? 'private' : 'public', createdBy: userId, createdAt: FieldValue.serverTimestamp() }
+  const ride = { title: course.title, courseId: courseRef.id, hostId: userId, purpose: data.purpose, visibility: data.purpose === 'solo' ? 'private' : 'public', startsAt, paceKmh: Math.max(0, Number(data.paceKmh ?? 0)), capacity: data.purpose === 'solo' ? 1 : Math.min(50, Math.max(2, Number(data.capacity ?? 6))), memberCount: 1, status: data.purpose === 'solo' ? '계획' : '모집중', description: String(data.description ?? '').slice(0, 1000), createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }
+  const batch = db.batch(); batch.set(courseRef, course); batch.set(rideRef, ride); batch.set(db.collection('rideMembers').doc(`${rideRef.id}_${userId}`), { rideId: rideRef.id, userId, role: 'host', rideAt: startsAt, joinedAt: FieldValue.serverTimestamp() }); batch.set(db.collection('users').doc(userId), { email: request.auth?.token?.email ?? null, status: 'active', updatedAt: FieldValue.serverTimestamp() }, { merge: true }); await batch.commit(); return { id: rideRef.id }
+})
+
+export const listMyRidePlans = onCall({ region }, async request => {
+  requireAuth(request.auth?.uid); const rows = await db.collection('rides').where('hostId', '==', request.auth!.uid).orderBy('createdAt', 'desc').limit(30).get(); const courseIds = rows.docs.map(row => row.data().courseId).filter(Boolean); const courseRows = await Promise.all(courseIds.map(id => db.collection('courses').doc(id).get())); const courses = new Map(courseRows.map(row => [row.id, row.data()])); return { plans: rows.docs.map(row => { const ride = row.data(); const course = courses.get(ride.courseId) ?? {}; return { id: row.id, ...ride, startsAt: ride.startsAt?.toDate?.()?.toISOString?.() ?? null, createdAt: ride.createdAt?.toDate?.()?.toISOString?.() ?? null, course } }) }
+})
+
+export const getAdminDashboard = onCall({ region }, async request => {
+  requireAdmin(request); const [users, rides, reports, noShows, recentUsers, recentRides, recentReports, logs] = await Promise.all([db.collection('users').count().get(), db.collection('rides').count().get(), db.collection('moderationReports').where('status', '==', 'open').count().get(), db.collection('noShowRecords').count().get(), db.collection('users').orderBy('updatedAt', 'desc').limit(20).get(), db.collection('rides').orderBy('createdAt', 'desc').limit(20).get(), db.collection('moderationReports').orderBy('createdAt', 'desc').limit(20).get(), db.collection('auditLogs').orderBy('createdAt', 'desc').limit(20).get()])
+  const clean = (row: FirebaseFirestore.QueryDocumentSnapshot) => { const value = row.data(); return { id: row.id, ...value, createdAt: value.createdAt?.toDate?.()?.toISOString?.() ?? null, updatedAt: value.updatedAt?.toDate?.()?.toISOString?.() ?? null, startsAt: value.startsAt?.toDate?.()?.toISOString?.() ?? null } }
+  return { stats: { users: users.data().count, rides: rides.data().count, openReports: reports.data().count, noShows: noShows.data().count }, users: recentUsers.docs.map(clean), rides: recentRides.docs.map(clean), reports: recentReports.docs.map(clean), logs: logs.docs.map(clean) }
+})
+
+export const adminModerate = onCall({ region }, async request => {
+  requireAdmin(request); const { action, targetId, reason } = request.data as { action?: string; targetId?: string; reason?: string }; if (!targetId || !action) throw new HttpsError('invalid-argument', '관리 작업 정보가 필요합니다.'); const adminId = request.auth!.uid
+  if (action === 'suspend_user' || action === 'activate_user') { const disabled = action === 'suspend_user'; await getAuth().updateUser(targetId, { disabled }); await db.collection('users').doc(targetId).set({ status: disabled ? 'suspended' : 'active', moderationReason: String(reason ?? '').slice(0, 500), updatedAt: FieldValue.serverTimestamp() }, { merge: true }); await audit(adminId, action, 'user', targetId, { reason: String(reason ?? '').slice(0, 500) }) }
+  else if (['hide_ride', 'restore_ride', 'close_ride'].includes(action)) { const status = action === 'hide_ride' ? '숨김' : action === 'close_ride' ? '마감' : '모집중'; await db.collection('rides').doc(targetId).update({ status, moderationReason: String(reason ?? '').slice(0, 500), updatedAt: FieldValue.serverTimestamp() }); await audit(adminId, action, 'ride', targetId, { reason: String(reason ?? '').slice(0, 500) }) }
+  else if (action === 'resolve_report' || action === 'dismiss_report') { await db.collection('moderationReports').doc(targetId).update({ status: action === 'resolve_report' ? 'resolved' : 'dismissed', resolvedBy: adminId, resolutionNote: String(reason ?? '').slice(0, 500), resolvedAt: FieldValue.serverTimestamp() }); await audit(adminId, action, 'report', targetId, { reason: String(reason ?? '').slice(0, 500) }) }
+  else throw new HttpsError('invalid-argument', '지원하지 않는 관리 작업입니다.'); return { ok: true }
 })

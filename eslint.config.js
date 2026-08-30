@@ -8,9 +8,9 @@ export default tseslint.config(
   { ignores: ['dist', 'functions/lib', 'node_modules'] },
   {
     files: ['**/*.{ts,tsx}'],
-    extends: [js.configs.recommended, ...tseslint.configs.recommended, reactHooks.configs.flat.recommended],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: { ecmaVersion: 2022, globals: { ...globals.browser, ...globals.node } },
-    plugins: { 'react-refresh': reactRefresh },
-    rules: { 'react-refresh/only-export-components': ['warn', { allowConstantExport: true }] },
+    plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
+    rules: { ...reactHooks.configs.recommended.rules, '@typescript-eslint/no-explicit-any': 'off', 'react-refresh/only-export-components': ['warn', { allowConstantExport: true }] },
   },
 )

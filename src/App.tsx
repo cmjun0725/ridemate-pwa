@@ -13,7 +13,7 @@ const fmt = (value: string) => new Intl.DateTimeFormat('ko-KR', { month: 'long',
 const routeColors = ['#087458', '#ef7d5f', '#4e65c5']
 type SavedPlan = { id: string; title: string; purpose: 'group' | 'solo'; distanceKm: number; elevationM: number; startName: string; createdAt: string }
 const readPlans = (): SavedPlan[] => { try { return JSON.parse(localStorage.getItem('ridemate-plans') ?? '[]') as SavedPlan[] } catch { return [] } }
-const savePlan = (plan: Omit<SavedPlan, 'id' | 'createdAt'>) => { const next = [{ ...plan, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...readPlans()]; localStorage.setItem('ridemate-plans', JSON.stringify(next.slice(0, 30))) }
+const savePlan = (plan: Omit<SavedPlan, 'id' | 'createdAt'>) => { if(auth?.currentUser) void createRidePlan({title:plan.title,purpose:plan.purpose,startName:plan.startName,distanceKm:plan.distanceKm,elevationM:plan.elevationM}).catch(()=>undefined); const next = [{ ...plan, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...readPlans()]; localStorage.setItem('ridemate-plans', JSON.stringify(next.slice(0, 30))) }
 
 function CourseMap({ routes, selected = 0, label = '코스 지도' }: { routes: Coordinate[][]; selected?: number; label?: string }) {
   const container = useRef<HTMLDivElement>(null); const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading'); const [message, setMessage] = useState('카카오맵 불러오는 중…')

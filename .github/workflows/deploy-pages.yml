@@ -13,6 +13,14 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VITE_FIREBASE_API_KEY: AIzaSyBSMJjuE7Ejuan0Kmg6soqmRgEQwS4AjJA
+      VITE_FIREBASE_AUTH_DOMAIN: clycling-community.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: clycling-community
+      VITE_FIREBASE_STORAGE_BUCKET: clycling-community.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "580065543389"
+      VITE_FIREBASE_APP_ID: "1:580065543389:web:605515b644dfc906334734"
+      VITE_FIREBASE_MEASUREMENT_ID: G-DKQ7MJLM2N
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

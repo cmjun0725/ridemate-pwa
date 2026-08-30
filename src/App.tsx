@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, ChevronRight, CircleUserRound, Clock3, MapPin, Mountain, Plus, Route, Search, Users, Wrench, X } from 'lucide-react'
 import { demoRides } from './data'
 import type { Ride } from './types'
@@ -7,6 +7,29 @@ type Tab = 'home' | 'search' | 'create' | 'my' | 'profile'
 const fmt = (value: string) => new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 
 function MapPreview({ ride }: { ride: Ride }) {
+  const container = useRef<HTMLDivElement>(null)
+  const key = import.meta.env.VITE_KAKAO_MAP_KEY
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (!key || !container.current) return
+    const draw = () => {
+      const kakao = window.kakao
+      if (!kakao || !container.current) return
+      kakao.maps.load(() => {
+        const points = ride.course.coordinates.map(point => new kakao.maps.LatLng(point.lat, point.lng))
+        const map = new kakao.maps.Map(container.current!, { center: points[0], level: 7 })
+        new kakao.maps.Polyline({ path: points, strokeWeight: 5, strokeColor: '#087458', strokeOpacity: 0.85, strokeStyle: 'solid' }).setMap(map)
+        new kakao.maps.Marker({ position: points[0], map, title: `출발 · ${ride.course.startName}` })
+        new kakao.maps.Marker({ position: points[points.length - 1], map, title: `도착 · ${ride.course.endName}` })
+        ride.course.stops.forEach(stop => new kakao.maps.Marker({ position: new kakao.maps.LatLng(stop.coordinate.lat, stop.coordinate.lng), map, title: `${stop.kind} · ${stop.name}` }))
+        setLoaded(true)
+      })
+    }
+    const existing = document.querySelector<HTMLScriptElement>('script[data-kakao-map]')
+    if (existing) { if (window.kakao) draw(); else existing.addEventListener('load', draw, { once: true }); return }
+    const script = document.createElement('script'); script.dataset.kakaoMap = 'true'; script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false`; script.async = true; script.addEventListener('load', draw, { once: true }); document.head.appendChild(script)
+  }, [key, ride])
+  if (key) return <div className="map live-map" ref={container} aria-label={`${ride.course.title} 실제 카카오 지도`}><span className="map-label">{loaded ? '카카오맵 · 코스 및 주변 시설' : '카카오맵 불러오는 중…'}</span></div>
   return <div className="map" aria-label={`${ride.course.title} 코스 지도 미리보기`}>
     <div className="grid" /><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M7 52 C 18 16, 34 81, 48 43 S 73 12, 91 55 S 75 88, 55 72" /></svg>
     <span className="pin start"><MapPin size={18} /></span><span className="pin poi"><Wrench size={15} /></span><span className="pin finish"><MapPin size={18} /></span>

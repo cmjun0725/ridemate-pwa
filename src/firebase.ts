@@ -15,13 +15,3 @@ export const isFirebaseConfigured = Boolean(config.apiKey && config.projectId);
 export const app = isFirebaseConfigured ? initializeApp(config) : undefined;
 export const auth = app ? getAuth(app) : undefined;
 export const functions = app ? getFunctions(app, "asia-northeast3") : undefined;
-export async function initializeAnalytics() {
-  if (!app || !config.measurementId) return;
-  const { getAnalytics, isSupported, logEvent } = await import(
-    "firebase/analytics"
-  );
-  if (await isSupported())
-    logEvent(getAnalytics(app), "page_view", {
-      page_location: window.location.href,
-    });
-}

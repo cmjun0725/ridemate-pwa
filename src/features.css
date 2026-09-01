@@ -199,12 +199,11 @@ legend {
 .date-time-grid input,
 .date-time-grid select {
   padding: 10px 8px;
-  background-color: #fff;
+  background: #fff;
   width: 100%;
   min-width: 0;
   color: #283630;
 }
-.date-time-grid select{padding:10px 38px 10px 12px;background-position:right 9px center}
 .date-time-grid input[type="date"] {
   display: block;
   color: #283630;
@@ -664,7 +663,7 @@ legend {
   .date-time-grid input,
   .date-time-grid select,
   .date-time-grid input[type="date"] {
-    background-color: #142d25;
+    background: #142d25;
     color: #edf6f2;
     border-color: #466056;
     color-scheme: dark;
@@ -672,16 +671,6 @@ legend {
   .schedule-toggle{background:#163128;color:#cfddd8;border-color:#405c52}.schedule-toggle.active{background:#72d4b2;border-color:#72d4b2;color:#0a221a}.schedule-empty{background:#142d25;color:#b9c8c2;border-color:#405c52}.uphill-picker>legend{color:#dce9e4}.uphill-picker>p{color:#adbbb6}.uphill-picker span{background:#142d25;color:#dce9e4;border-color:#405c52}.uphill-picker small{color:#a9bab3}.uphill-picker input:checked+span{background:#193c30;color:#8ce2c1;border-color:#72d4b2;box-shadow:0 0 0 2px #224d3e}
   input::placeholder,
   textarea::placeholder { color: #91a29b; opacity: 1; }
-  select {
-    background-color: #142d25;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m6.5 8 3.5 3.5L13.5 8' stroke='%2372d4b2' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    color: #edf6f2;
-    border-color: #405c52;
-    box-shadow: inset 0 1px 0 #ffffff0a;
-  }
-  select:hover { background-color: #19362c; border-color: #5b7a6f; }
-  select:focus-visible { border-color: #72d4b2; box-shadow: 0 0 0 4px #72d4b226; }
-  select option { background: #142d25; color: #edf6f2; }
   .purpose-tabs button.active,
   .mode-cards button.active,
   .candidate-card.selected {

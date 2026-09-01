@@ -21,13 +21,19 @@ jobs:
       VITE_FIREBASE_MESSAGING_SENDER_ID: "580065543389"
       VITE_FIREBASE_APP_ID: "1:580065543389:web:605515b644dfc906334734"
       VITE_FIREBASE_MEASUREMENT_ID: G-DKQ7MJLM2N
+      VITE_FIREBASE_VAPID_KEY: "${{ secrets.VITE_FIREBASE_VAPID_KEY }}"
       VITE_KAKAO_MAP_KEY: e6616e69fe063df85af9079a17df2906
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
+      - name: Verify Firebase functions
+        working-directory: functions
+        run: npm ci && npm run build
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
   deploy:

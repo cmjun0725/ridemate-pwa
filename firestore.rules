@@ -12,9 +12,15 @@ service cloud.firestore {
     match /rideMembers/{memberId} { allow read: if signedIn(); allow write: if false; }
     match /votes/{voteId} { allow read: if signedIn() && rideMember(resource.data.rideId); allow write: if false; }
     match /noShowRecords/{recordId} { allow read: if signedIn() && (resource.data.riderId == request.auth.uid || request.auth.token.admin == true); allow write: if false; }
-    match /deviceTokens/{tokenId} { allow read: if false; allow create, update, delete: if signedIn() && request.resource.data.userId == request.auth.uid; }
+    match /deviceTokens/{tokenId} { allow read: if false; allow create, update: if signedIn() && request.resource.data.userId == request.auth.uid; allow delete: if signedIn() && resource.data.userId == request.auth.uid; }
     match /moderationReports/{reportId} { allow create: if signedIn() && request.resource.data.reporterId == request.auth.uid; allow read, update: if admin(); allow delete: if false; }
     match /auditLogs/{logId} { allow read: if admin(); allow write: if false; }
     match /aiRateLimits/{limitId} { allow read, write: if false; }
+    match /rideMessages/{messageId} { allow read, write: if false; }
+    match /userBlocks/{blockId} { allow read, write: if false; }
+    match /rideFavorites/{favoriteId} { allow read, write: if false; }
+    match /rideReviews/{reviewId} { allow read, write: if false; }
+    match /liveLocations/{locationId} { allow read, write: if false; }
+    match /productEvents/{eventId} { allow read, write: if false; }
   }
 }

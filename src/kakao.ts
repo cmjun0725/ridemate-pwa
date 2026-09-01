@@ -1,4 +1,5 @@
 import type { Coordinate } from './types'
+import type { Stop } from './types'
 
 let kakaoPromise: Promise<any> | undefined
 
@@ -29,4 +30,17 @@ export async function geocodePlace(query: string): Promise<Coordinate & { name: 
       resolve({ lat: Number(results[0].y), lng: Number(results[0].x), name: results[0].place_name })
     })
   })
+}
+
+export async function searchCoursePois(route: Coordinate[]): Promise<Stop[]> {
+  const kakao = await loadKakaoMaps(); if (!route.length) return [];
+  const sampleCount=Math.min(6,Math.max(2,Math.ceil(route.length/150))); const samples=Array.from({length:sampleCount},(_,index)=>route[Math.min(route.length-1,Math.round(index*(route.length-1)/(sampleCount-1)))]);
+  const searches: Array<Promise<Stop[]>>=[];
+  for (const [sampleIndex,point] of samples.entries()) {
+    const places=new kakao.maps.services.Places(); const options={location:new kakao.maps.LatLng(point.lat,point.lng),radius:1200,size:5,sort:kakao.maps.services.SortBy.DISTANCE};
+    const run=(kind:Stop['kind'],keyword?:string,category?:string)=>new Promise<Stop[]>(resolve=>{const callback=(rows:Array<{id:string;place_name:string;y:string;x:string}>,status:string)=>resolve(status===kakao.maps.services.Status.OK?rows.map(row=>({id:`${kind}-${row.id}`,name:row.place_name,kind,coordinate:{lat:Number(row.y),lng:Number(row.x)}})):[]);if(category)places.categorySearch(category,callback,options);else places.keywordSearch(keyword,callback,options)});
+    searches.push(run('편의점',undefined,'CS2'),run('화장실','공중화장실'),run('정비소','자전거 수리점'));
+    if(sampleIndex===2) break;
+  }
+  const unique=new Map<string,Stop>();(await Promise.all(searches)).flat().forEach(stop=>unique.set(stop.id,stop)); return [...unique.values()].slice(0,18);
 }

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#ecf7f2"/>
+  <circle cx="1030" cy="88" r="310" fill="#ccecdf"/>
+  <circle cx="110" cy="620" r="250" fill="#d9eee6"/>
+  <rect x="90" y="82" width="120" height="120" rx="30" fill="#0d5f4c"/>
+  <path d="M120 160a18 18 0 1 0 0 1M175 160a18 18 0 1 0 0 1M138 160l15-38 17 38m-17-38h28l-12 19" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="245" y="158" font-family="Arial, sans-serif" font-size="58" font-weight="800" fill="#0d5f4c">RIDEMATE</text>
+  <text x="90" y="320" font-family="Arial, sans-serif" font-size="66" font-weight="800" fill="#102a23">함께 달리는 더 안전한 라이딩</text>
+  <text x="90" y="405" font-family="Arial, sans-serif" font-size="34" fill="#425b53">자전거 코스 추천 · 실제 고도 검증 · 라이딩 파트너 매칭</text>
+  <rect x="90" y="480" width="330" height="74" rx="37" fill="#0d5f4c"/>
+  <text x="255" y="528" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#fff">라이드메이트 시작하기</text>
+</svg>

@@ -38,3 +38,28 @@ export function isNoShowConfirmed(
 ) {
   return totalVotes >= 3 && affirmativeVotes * 2 > totalVotes;
 }
+
+const blockedRideTerms = [
+  "씨발",
+  "시발",
+  "개새끼",
+  "병신",
+  "좆",
+  "보지",
+  "자지",
+  "섹스",
+  "강간",
+  "fuck",
+  "sex",
+];
+
+export function validateRideContent(...values: Array<string | undefined>) {
+  const normalized = values
+    .join(" ")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s._\-~!@#$%^&*()+=[\]{}|\\/<>?,:;'"`]+/g, "");
+  return blockedRideTerms.some((term) => normalized.includes(term))
+    ? "라이딩 제목이나 설명에 사용할 수 없는 표현이 포함되어 있습니다."
+    : undefined;
+}

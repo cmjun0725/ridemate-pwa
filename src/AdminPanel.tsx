@@ -50,7 +50,10 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void load();
   }, []);
-  const act = (action: string, targetId: string, label: string) => { setReason(""); setPending({ action, targetId, label }); };
+  const act = (action: string, targetId: string, label: string) => {
+    setReason("");
+    setPending({ action, targetId, label });
+  };
   const execute = async () => {
     if (!pending) return;
     try {
@@ -288,7 +291,46 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
           </div>
         </section>
       )}
-      {pending && <div className="modal-backdrop"><form className="admin-action-modal" role="dialog" aria-modal="true" aria-labelledby="admin-action-title" onSubmit={event=>{event.preventDefault();void execute()}}><h2 id="admin-action-title">{pending.label}</h2><p>이 작업은 즉시 반영되고 관리자 감사 로그에 기록됩니다.</p><label>처리 사유<textarea autoFocus required value={reason} maxLength={500} onChange={event=>setReason(event.target.value)} placeholder="처리 근거를 입력하세요"/></label><div className="inline-actions"><button type="button" className="secondary" onClick={()=>setPending(null)}>취소</button><button className="danger" type="submit">확인하고 실행</button></div></form></div>}
+      {pending && (
+        <div className="modal-backdrop">
+          <form
+            className="admin-action-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-action-title"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void execute();
+            }}
+          >
+            <h2 id="admin-action-title">{pending.label}</h2>
+            <p>이 작업은 즉시 반영되고 관리자 감사 로그에 기록됩니다.</p>
+            <label>
+              처리 사유
+              <textarea
+                autoFocus
+                required
+                value={reason}
+                maxLength={500}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="처리 근거를 입력하세요"
+              />
+            </label>
+            <div className="inline-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setPending(null)}
+              >
+                취소
+              </button>
+              <button className="danger" type="submit">
+                확인하고 실행
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </section>
   );
 }

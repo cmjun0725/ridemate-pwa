@@ -30,7 +30,7 @@ import {
 } from "firebase/auth";
 const AdminPanel = lazy(() => import("./AdminPanel"));
 import { auth } from "./firebase";
-import { buildRideStart, filterPublicRides } from "./domain";
+import { buildRideStart, filterPublicRides, validateRideContent } from "./domain";
 import { geocodePlace, loadKakaoMaps, searchCoursePois } from "./kakao";
 import {
   bootstrapAdmin,
@@ -165,6 +165,66 @@ const parseGpx = async (file?: File) => {
   };
 };
 
+function RouteFallback({
+  routes,
+  selected,
+  stops,
+}: {
+  routes: Coordinate[][];
+  selected: number;
+  stops: Stop[];
+}) {
+  const points = routes.flat();
+  if (points.length < 2) return null;
+  const minLat = Math.min(...points.map((point) => point.lat));
+  const maxLat = Math.max(...points.map((point) => point.lat));
+  const minLng = Math.min(...points.map((point) => point.lng));
+  const maxLng = Math.max(...points.map((point) => point.lng));
+  const latRange = Math.max(maxLat - minLat, 0.0001);
+  const lngRange = Math.max(maxLng - minLng, 0.0001);
+  const project = (point: Coordinate) =>
+    `${24 + ((point.lng - minLng) / lngRange) * 552},${18 + ((maxLat - point.lat) / latRange) * 214}`;
+  const stopColor: Record<string, string> = {
+    편의점: "#087458",
+    화장실: "#2874c6",
+    정비소: "#d76527",
+    휴식: "#626d68",
+  };
+  return (
+    <svg
+      className="route-fallback"
+      viewBox="0 0 600 250"
+      role="img"
+      aria-label="배경 지도 없이 표시한 자전거 경로 미리보기"
+    >
+      <rect width="600" height="250" rx="16" />
+      {routes.map((route, index) => (
+        <polyline
+          key={`fallback-${index}`}
+          points={route.map(project).join(" ")}
+          stroke={routeColors[index] ?? "#59666f"}
+          strokeWidth={index === selected ? 7 : 4}
+          opacity={index === selected ? 1 : 0.55}
+        />
+      ))}
+      {stops.map((stop) => {
+        const [cx, cy] = project(stop.coordinate).split(",");
+        return (
+          <circle
+            key={`fallback-stop-${stop.id}`}
+            cx={cx}
+            cy={cy}
+            r="6"
+            fill={stopColor[stop.kind]}
+            stroke="#fff"
+            strokeWidth="2"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 function CourseMap({
   routes,
   selected = 0,
@@ -183,6 +243,7 @@ function CourseMap({
     "loading",
   );
   const [message, setMessage] = useState("카카오맵 불러오는 중…");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     setStatus("loading");
@@ -194,6 +255,7 @@ function CourseMap({
           setMessage("저장된 경로 좌표가 없습니다.");
           return;
         }
+        container.current.replaceChildren();
         const first = routes.find((route) => route.length)![0];
         const map = new kakao.maps.Map(container.current, {
           center: new kakao.maps.LatLng(first.lat, first.lng),
@@ -243,6 +305,9 @@ function CourseMap({
           const marker = document.createElement("div");
           marker.className = `facility-marker ${meta.className}`;
           marker.title = `${stop.kind} · ${stop.name}`;
+          marker.tabIndex = 0;
+          marker.setAttribute("role", "button");
+          marker.setAttribute("aria-label", `${stop.kind} ${stop.name}`);
           const icon = document.createElement("span");
           icon.className = "facility-marker-icon";
           icon.textContent = meta.icon;
@@ -250,6 +315,17 @@ function CourseMap({
           name.className = "facility-marker-name";
           name.textContent = stop.name;
           marker.append(icon, name);
+          const toggleName = () => marker.classList.toggle("expanded");
+          marker.addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleName();
+          });
+          marker.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              toggleName();
+            }
+          });
           new kakao.maps.CustomOverlay({
             position: new kakao.maps.LatLng(stop.coordinate.lat, stop.coordinate.lng),
             content: marker,
@@ -273,22 +349,37 @@ function CourseMap({
     return () => {
       active = false;
     };
-  }, [routes, selected, stops, climbSegments]);
+  }, [routes, selected, stops, climbSegments, attempt]);
   return (
     <div
       className={`map live-map ${status === "error" ? "map-error" : ""}`}
       ref={container}
+      role="region"
       aria-label={label}
+      aria-busy={status === "loading"}
     >
       {status !== "ready" && (
-        <div className="map-state">
+        <div className="map-state" aria-live="polite">
           <b>{status === "error" ? "지도를 표시할 수 없어요" : message}</b>
           {status === "error" && (
-            <small>
-              {message}
-              <br />
-              카카오 JavaScript SDK 도메인에 현재 주소를 등록해 주세요.
-            </small>
+            <>
+              <RouteFallback routes={routes} selected={selected} stops={stops} />
+              <small>
+                {message}
+                <br />
+                현재는 경로 미리보기를 표시합니다. 카카오 JavaScript SDK 도메인에 현재 주소를 등록해 주세요.
+              </small>
+              <button
+                type="button"
+                className="secondary map-retry"
+                onClick={() => {
+                  setMessage("카카오맵 다시 불러오는 중…");
+                  setAttempt((value) => value + 1);
+                }}
+              >
+                지도 다시 불러오기
+              </button>
+            </>
           )}
         </div>
       )}
@@ -322,7 +413,7 @@ function FacilityList({ stops, loading = false, compact = false }: { stops: Stop
         return (
           <section className={`facility-group ${meta.className}`} key={kind}>
             <h3><span>{meta.icon}</span>{kind === "정비소" ? "자전거 정비점" : kind === "휴식" ? "지정 휴식 지점" : kind}<small>{rows.length}곳</small></h3>
-            <div>{rows.slice(0, compact ? 4 : undefined).map((stop) => <span key={stop.id} title={stop.name}>{stop.name}</span>)}</div>
+            <div>{rows.slice(0, compact ? 4 : undefined).map((stop) => <span key={stop.id} title={`${stop.name}${stop.distanceFromRouteM != null ? ` · 코스에서 ${stop.distanceFromRouteM}m` : ""}`}><b>{stop.name}</b>{stop.distanceFromRouteM != null && <small>코스에서 {stop.distanceFromRouteM}m</small>}</span>)}</div>
           </section>
         );
       })}
@@ -381,11 +472,16 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
 }
 
 function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
+  const memberCount = ride.memberCount ?? ride.members?.length ?? 1;
   return (
-    <button className="ride-card" onClick={onOpen}>
+    <button
+      className="ride-card"
+      onClick={onOpen}
+      aria-label={`${ride.title}, ${ride.course.startName}, ${ride.course.distanceKm}km, ${ride.status}, 참여 ${memberCount}/${ride.capacity}명`}
+    >
       <div className="ride-date">
-        <CalendarDays size={16} />
-        {fmt(ride.startsAt)}
+        <CalendarDays size={16} aria-hidden="true" />
+        <time dateTime={ride.startsAt}>{fmt(ride.startsAt)}</time>
       </div>
       <h3>{ride.title}</h3>
       <p>
@@ -394,12 +490,12 @@ function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
       </p>
       <div className="ride-meta">
         <span>
-          <Users size={16} />
-          {ride.memberCount ?? ride.members?.length ?? 1}/{ride.capacity}
+          <Users size={16} aria-hidden="true" />
+          {memberCount}/{ride.capacity}
         </span>
         <span>{ride.paceKmh}km/h</span>
         <span className="open">{ride.status}</span>
-        <ChevronRight size={18} />
+        <ChevronRight size={18} aria-hidden="true" />
       </div>
     </button>
   );
@@ -418,6 +514,10 @@ function RideDetail({
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState<RideMessage[]>([]);
   const [chatText, setChatText] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat.length]);
   const [favorite, setFavorite] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [weather, setWeather] = useState("");
@@ -483,6 +583,12 @@ function RideDetail({
       await sendRideMessage(ride.id, chatText);
       setChatText("");
       setChat(await listRideMessages(ride.id));
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "메시지를 보내지 못했습니다. 다시 시도해 주세요.",
+      );
     } finally {
       setBusy(false);
     }
@@ -583,8 +689,14 @@ function RideDetail({
           aria-pressed={favorite}
           onClick={async () => {
             if (!auth?.currentUser) return setMessage("로그인이 필요합니다.");
-            await setFavoriteRide(ride.id, !favorite);
-            setFavorite(!favorite);
+            const next = !favorite;
+            setFavorite(next);
+            try {
+              await setFavoriteRide(ride.id, next);
+            } catch {
+              setFavorite(!next);
+              setMessage("관심 코스 설정을 변경하지 못했습니다.");
+            }
           }}
         >
           <Heart fill={favorite ? "currentColor" : "none"} />{" "}
@@ -631,7 +743,7 @@ function RideDetail({
           </label>
           <label>
             상세 내용
-            <textarea name="details" maxLength={1000} />
+            <textarea name="details" maxLength={1000} placeholder="상세 내용을 입력해 주세요" />
           </label>
           <div className="inline-actions">
             <button
@@ -651,26 +763,26 @@ function RideDetail({
           </div>
         </form>
       )}
-      <div className="stat-grid">
+      <dl className="stat-grid" aria-label="라이딩 주요 정보">
         <span>
-          <Route />
+          <Route aria-hidden="true" />
           {ride.course.distanceKm} km<small>거리</small>
         </span>
         <span>
-          <Mountain />
+          <Mountain aria-hidden="true" />
           {ride.course.elevationM} m<small>누적 상승</small>
         </span>
         <span>
-          <Clock3 />
+          <Clock3 aria-hidden="true" />
           {ride.paceKmh} km/h<small>목표 평속</small>
         </span>
-      </div>
+      </dl>
       {(ride.course.elevationProfile?.length ?? 0) > 1 && (
         <ElevationChart points={ride.course.elevationProfile ?? []} />
       )}
       {(ride.course.climbSegments?.length ?? 0) > 0 && (
-        <article className="info climb-list">
-          <h2><Mountain /> 분석된 업힐</h2>
+        <article className="info climb-list" aria-label="분석된 업힐">
+          <h2><Mountain aria-hidden="true" /> 분석된 업힐</h2>
           {(ride.course.climbSegments ?? []).map((segment, index) => (
             <p key={segment.id}><b>{index + 1}번째 업힐</b><span>{segment.startKm}–{segment.endKm}km · +{segment.gainM}m · 평균 {segment.avgGradient}%</span></p>
           ))}
@@ -719,19 +831,27 @@ function RideDetail({
         members.some((member) => member.id !== auth?.currentUser?.uid) && (
           <article className="info review">
             <h2>
-              <Star /> 라이딩 후기
+              <Star aria-hidden="true" /> 라이딩 후기
             </h2>
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
-                await createRideReview({
-                  rideId: ride.id,
-                  targetUserId: String(form.get("targetUserId")),
-                  rating: Number(form.get("rating")),
-                  comment: String(form.get("comment") ?? ""),
-                });
-                setMessage("후기를 등록했습니다.");
+                try {
+                  await createRideReview({
+                    rideId: ride.id,
+                    targetUserId: String(form.get("targetUserId")),
+                    rating: Number(form.get("rating")),
+                    comment: String(form.get("comment") ?? ""),
+                  });
+                  setMessage("후기를 등록했습니다.");
+                } catch (error) {
+                  setMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "후기를 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                  );
+                }
               }}
             >
               <label>
@@ -765,9 +885,9 @@ function RideDetail({
           </article>
         )}
       {joined && (
-        <article className="info chat">
+        <article className="info chat" aria-label="참여자 대화">
           <h2>
-            <MessageCircle /> 참여자 대화
+            <MessageCircle aria-hidden="true" /> 참여자 대화
           </h2>
           <div className="chat-log" aria-live="polite">
             {chat.map((row) => (
@@ -779,6 +899,7 @@ function RideDetail({
             {!chat.length && (
               <p className="muted">집합 장소와 정차 지점을 함께 정해보세요.</p>
             )}
+            <div ref={chatEndRef} aria-hidden="true" />
           </div>
           <form onSubmit={submitChat}>
             <input
@@ -922,8 +1043,26 @@ function CandidateResults({
 }) {
   const [selected, setSelected] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [pois,setPois]=useState<Stop[]>([]); const [poisLoading,setPoisLoading]=useState(false);
-  useEffect(()=>{let active=true;setPoisLoading(true);void searchCoursePois(candidates[selected]?.coordinates??[]).then(rows=>{if(active)setPois(rows)}).catch(()=>{if(active)setPois([])}).finally(()=>{if(active)setPoisLoading(false)});return()=>{active=false}},[candidates,selected]);
+  const [pois, setPois] = useState<Stop[]>([]);
+  const [poisLoading, setPoisLoading] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setPoisLoading(true);
+    const coordinates = candidates[selected]?.coordinates ?? [];
+    void searchCoursePois(coordinates)
+      .then((rows) => {
+        if (active) setPois(rows);
+      })
+      .catch(() => {
+        if (active) setPois([]);
+      })
+      .finally(() => {
+        if (active) setPoisLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [candidates, selected]);
   const store = async () => {
     const candidate = candidates[selected];
     const cached = (() => {
@@ -1056,6 +1195,10 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
     setError("");
     const form = new FormData(event.currentTarget);
     try {
+      const moderationError = validateRideContent(
+        String(form.get("description") ?? ""),
+      );
+      if (moderationError) throw new Error(moderationError);
       const place = await geocodePlace(String(form.get("startName")));
       const metadata: Partial<RidePlanInput> = {
         startName: place.name,
@@ -1094,6 +1237,11 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
     setError("");
     const form = new FormData(event.currentTarget);
     try {
+      const moderationError = validateRideContent(
+        String(form.get("title") ?? ""),
+        String(form.get("description") ?? ""),
+      );
+      if (moderationError) throw new Error(moderationError);
       const file =
         form.get("gpx") instanceof File && (form.get("gpx") as File).size
           ? (form.get("gpx") as File)
@@ -1407,7 +1555,19 @@ function LegalSheet({
   );
 }
 
-function LegalLinks(){const [legal,setLegal]=useState<keyof typeof legalCopy|null>(null);return <><div className="legal-links"><button onClick={()=>setLegal('terms')}>이용약관</button><button onClick={()=>setLegal('privacy')}>개인정보처리방침</button><button onClick={()=>setLegal('location')}>위치서비스 안내</button></div>{legal&&<LegalSheet kind={legal} onClose={()=>setLegal(null)}/>}</>}
+function LegalLinks() {
+  const [legal, setLegal] = useState<keyof typeof legalCopy | null>(null);
+  return (
+    <>
+      <div className="legal-links">
+        <button onClick={() => setLegal("terms")}>이용약관</button>
+        <button onClick={() => setLegal("privacy")}>개인정보처리방침</button>
+        <button onClick={() => setLegal("location")}>위치서비스 안내</button>
+      </div>
+      {legal && <LegalSheet kind={legal} onClose={() => setLegal(null)} />}
+    </>
+  );
+}
 
 function ProfileTools() {
   const [settings, setSettings] = useState<RiderSettings | null>(null);
@@ -1429,16 +1589,24 @@ function ProfileTools() {
         onSubmit={async (event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
-          await saveRiderSettings({
-            displayName: String(form.get("displayName")),
-            emergencyName: String(form.get("emergencyName")),
-            emergencyPhone: String(form.get("emergencyPhone")),
-            notifyRide: form.get("notifyRide") === "on",
-            notifyChat: form.get("notifyChat") === "on",
-            notifySafety: form.get("notifySafety") === "on",
-            onboardingComplete: true,
-          });
-          setSaved("설정을 안전하게 저장했습니다.");
+          try {
+            await saveRiderSettings({
+              displayName: String(form.get("displayName")),
+              emergencyName: String(form.get("emergencyName")),
+              emergencyPhone: String(form.get("emergencyPhone")),
+              notifyRide: form.get("notifyRide") === "on",
+              notifyChat: form.get("notifyChat") === "on",
+              notifySafety: form.get("notifySafety") === "on",
+              onboardingComplete: true,
+            });
+            setSaved("설정을 안전하게 저장했습니다.");
+          } catch (error) {
+            setSaved(
+              error instanceof Error
+                ? error.message
+                : "설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+            );
+          }
         }}
       >
         <h2>안전 프로필</h2>
@@ -1699,11 +1867,16 @@ function LoginPanel() {
           />
         </label>
         {message && (
-          <p className="form-error" role="alert">
+          <p className="form-error" role="alert" id="login-error">
             {message}
           </p>
         )}
-        <button className="primary wide" type="submit" disabled={busy}>
+        <button
+          className="primary wide"
+          type="submit"
+          disabled={busy}
+          aria-describedby={message ? "login-error" : undefined}
+        >
           {busy
             ? "처리 중…"
             : mode === "login"
@@ -1810,12 +1983,30 @@ function SavedGroupRide({ plan, onBack }: { plan: SavedPlan; onBack: () => void 
   const [ride, setRide] = useState<Ride | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
+    setError("");
     void getRideDetails(plan.id)
       .then(setRide)
-      .catch(() => setError("라이딩 상세를 불러오지 못했습니다."));
+      .catch(() => setError("라이딩 상세를 불러오지 못했습니다. 다시 시도해 주세요."));
   }, [plan.id]);
   if (ride) return <RideDetail ride={ride} onBack={onBack} />;
-  return <section className="page"><button className="back" onClick={onBack}>← 내 라이딩으로</button>{error ? <p className="form-error">{error}</p> : <div className="skeleton-card" aria-label="라이딩 상세 불러오는 중" />}</section>;
+  return (
+    <section className="page">
+      <button className="back" onClick={onBack}>← 내 라이딩으로</button>
+      {error ? (
+        <>
+          <p className="form-error">{error}</p>
+          <button className="secondary wide" onClick={() => {
+            setError("");
+            void getRideDetails(plan.id)
+              .then(setRide)
+              .catch(() => setError("라이딩 상세를 불러오지 못했습니다. 다시 시도해 주세요."));
+          }}>다시 시도</button>
+        </>
+      ) : (
+        <div className="skeleton-card" aria-label="라이딩 상세 불러오는 중" />
+      )}
+    </section>
+  );
 }
 
 function MyRides() {
@@ -1868,6 +2059,11 @@ export default function App() {
   });
   const [selected, setSelected] = useState<Ride | null>(null);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 200);
+    return () => clearTimeout(timer);
+  }, [query]);
   const [rides, setRides] = useState<Ride[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedError, setFeedError] = useState("");
@@ -1880,6 +2076,10 @@ export default function App() {
     () => localStorage.getItem("ridemate-onboarded") !== "yes",
   );
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const isAdminView = useMemo(
+    () => new URLSearchParams(window.location.search).get("admin") === "1",
+    [],
+  );
   useEffect(() => {
     try {
       const cached = JSON.parse(
@@ -1910,12 +2110,21 @@ export default function App() {
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
   const filtered = useMemo(
-    () => filterPublicRides(rides, query, maxDistance, maxPace),
-    [rides, query, maxDistance, maxPace],
+    () => filterPublicRides(rides, debouncedQuery, maxDistance, maxPace),
+    [rides, debouncedQuery, maxDistance, maxPace],
   );
-  if (new URLSearchParams(window.location.search).get("admin") === "1")
+  const prevTab = useRef(tab);
+  useEffect(() => {
+    if (prevTab.current !== tab || selected) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      const mainContent = document.getElementById("main-content");
+      if (mainContent) mainContent.focus({ preventScroll: true });
+    }
+    prevTab.current = tab;
+  }, [tab, selected]);
+  if (isAdminView)
     return (
-      <main className="app-shell">
+      <main className="admin-app-shell">
         <Suspense
           fallback={
             <div
@@ -1962,18 +2171,21 @@ export default function App() {
           라이딩 만들기
         </button>
       </div>
-      <div className="search">
-        <Search size={18} />
+      <div className="search" role="search">
+        <Search size={18} aria-hidden="true" />
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="지역 또는 코스 검색"
+          aria-label="지역 또는 코스 검색"
         />
-        <button aria-label="검색어 지우기" onClick={() => setQuery("")}>
-          <X size={16} />
-        </button>
+        {query && (
+          <button aria-label="검색어 지우기" onClick={() => setQuery("")}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
-      <div className="filter-bar" aria-label="라이딩 필터">
+      <div className="filter-bar" role="group" aria-label="라이딩 필터">
         <label>
           최대 거리
           <select
@@ -2029,14 +2241,24 @@ export default function App() {
           />
         ))}
         {!feedLoading && !filtered.length && (
-          <p className="empty">조건에 맞는 라이딩이 없습니다.</p>
+          <div className="empty" role="status">
+            <p>조건에 맞는 라이딩이 없습니다.</p>
+            <button
+              className="secondary wide"
+              style={{ marginTop: 12, maxWidth: 260, margin: "12px auto 0" }}
+              onClick={() => setTab("create")}
+            >
+              <Plus size={16} aria-hidden="true" /> 새 라이딩 만들기
+            </button>
+          </div>
         )}
       </div>
     </section>
   );
   return (
     <main className="app-shell">
-      <header>
+      <a href="#main-content" className="skip-nav">본문 바로가기</a>
+      <header role="banner">
         <button
           onClick={() => {
             setTab("home");
@@ -2055,7 +2277,7 @@ export default function App() {
         </button>
       </header>
       {installPrompt && (
-        <aside className="install-banner">
+        <aside className="install-banner" role="complementary" aria-label="앱 설치 안내">
           <div>
             <b>홈 화면에 라이드메이트 설치</b>
             <small>더 빠르게 열고 최근 코스를 오프라인에서도 확인하세요.</small>
@@ -2079,9 +2301,11 @@ export default function App() {
           </button>
         </aside>
       )}
-      {content}
+      <div id="main-content" tabIndex={-1}>
+        {content}
+      </div>
       {!selected && (
-        <nav>
+        <nav role="navigation" aria-label="메인 메뉴">
           {(
             [
               ["home", "홈"],
@@ -2090,12 +2314,12 @@ export default function App() {
               ["my", "내 라이딩"],
               ["profile", "프로필"],
             ] as [Tab, string][]
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={tab === id ? "current" : ""}
-            >
+          ).map(([id, label]) => (              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={tab === id ? "current" : ""}
+                aria-current={tab === id ? "page" : undefined}
+              >
               {id === "create" ? (
                 <Plus size={22} />
               ) : id === "search" ? (
@@ -2112,13 +2336,18 @@ export default function App() {
           ))}
         </nav>
       )}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {selected ? "라이딩 상세 화면으로 이동" : tab === "home" ? "홈 화면" : tab === "search" ? "탐색 화면" : tab === "create" ? "라이딩 만들기 화면" : tab === "my" ? "내 라이딩 화면" : "프로필 화면"}
+      </div>
       {showOnboarding && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" onClick={finishOnboarding} onKeyDown={(e) => { if (e.key === "Escape") finishOnboarding(); }}>
           <section
             className="onboarding"
             role="dialog"
             aria-modal="true"
             aria-labelledby="onboarding-title"
+            aria-describedby="onboarding-desc"
+            onClick={(e) => e.stopPropagation()}
           >
             <span>{onboardingStep + 1}/3</span>
             <div className="onboarding-icon">
@@ -2137,7 +2366,7 @@ export default function App() {
                   ? "조건이 맞는 라이더와 함께"
                   : "안전을 직접 통제하세요"}
             </h1>
-            <p>
+            <p id="onboarding-desc">
               {onboardingStep === 0
                 ? "거리·업힐을 입력하면 자전거 경로와 실제 상승고도를 검증해 3개 후보를 보여드려요."
                 : onboardingStep === 1

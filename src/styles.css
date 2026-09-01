@@ -10,7 +10,10 @@
 body {
   margin: 0;
 }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scroll-padding-top: 80px; scroll-padding-bottom: 90px; }
+body {
+  -webkit-tap-highlight-color: transparent;
+}
 button,
 input,
 select,
@@ -22,12 +25,53 @@ button {
   border: 0;
   background: none;
   color: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
+button:active { color: inherit; }
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-a:focus-visible { outline: 3px solid #f0a142; outline-offset: 2px; }
+a:focus-visible {
+  outline: 3px solid #f0a142;
+  outline-offset: 2px;
+}
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+/* Screen reader only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Skip navigation link */
+.skip-nav {
+  position: fixed;
+  top: -100%;
+  left: 16px;
+  z-index: 100;
+  background: #0d5f4c;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 0 0 12px 12px;
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+.skip-nav:focus {
+  top: 0;
+  outline: 3px solid #f0a142;
+  outline-offset: 2px;
+}
 .app-shell {
   width: min(100%, 480px);
   min-height: 100vh;
@@ -61,6 +105,12 @@ header {
 }
 .page {
   padding: 10px 20px 24px;
+  padding-bottom: calc(24px + 88px);
+  animation: pageIn 0.25s ease;
+}
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .page h1 {
   font-size: 28px;
@@ -114,7 +164,10 @@ header {
   align-items: center;
   position: relative;
   z-index: 1;
+  min-height: 44px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+.hero-action:hover { transform: scale(1.03); box-shadow: 0 4px 12px #0002; }
 .search {
   height: 48px;
   border: 1px solid #e0e7e3;
@@ -159,7 +212,9 @@ header {
   border-radius: 17px;
   padding: 16px;
   box-shadow: 0 2px 5px #172c2310;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
+.ride-card:active { transform: scale(0.985); }
 .ride-card h3 {
   font-size: 17px;
   margin: 7px 0 4px;
@@ -217,6 +272,10 @@ nav button {
   align-items: center;
   gap: 3px;
   min-width: 54px;
+  min-height: 48px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 nav button.current {
   color: #087458;
@@ -236,6 +295,9 @@ nav button:nth-child(3) {
   font-size: 13px;
   color: #557168;
   margin-bottom: 12px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 .map {
   height: 245px;
@@ -296,6 +358,8 @@ nav button:nth-child(3) {
   font-size: 11px;
   font-weight: 600;
 }
+/* 카카오맵 축척과 겹치므로 경로 출처는 상단 cycle-badge로만 표시합니다. */
+.live-map .map-label { display: none; }
 .detail-head {
   display: flex;
   justify-content: space-between;
@@ -322,15 +386,24 @@ nav button:nth-child(3) {
   font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
+  min-height: 48px;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
 .primary {
   background: #0d5f4c;
   color: #fff;
 }
+.primary:hover,
+.primary:focus,
+.primary:active { background: #094f3f; color: #fff; }
+.primary:active { transform: scale(0.97); }
 .secondary {
   background: #e8f1ed;
   color: #0d5f4c;
 }
+.secondary:hover,
+.secondary:focus,
+.secondary:active { background: #d7e8e0; color: #084f3e; }
 .detail-head .primary,
 .detail-head .secondary {
   height: 44px;
@@ -427,6 +500,8 @@ select {
   outline-color: #0d7b5e;
   font-size: 14px;
   color: #283630;
+  min-width: 0;
+  width: 100%;
 }
 .two {
   display: grid;

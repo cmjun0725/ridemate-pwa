@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildRideStart, filterPublicRides, isNoShowConfirmed } from "./domain";
+import {
+  buildRideStart,
+  filterPublicRides,
+  isNoShowConfirmed,
+  validateRideContent,
+} from "./domain";
 import type { Ride } from "./types";
 
 const ride = (distanceKm: number, paceKmh: number, title = "한강 라이딩") =>
@@ -43,5 +48,9 @@ describe("라이딩 도메인 정책", () => {
     expect(isNoShowConfirmed(2, 2)).toBe(false);
     expect(isNoShowConfirmed(4, 2)).toBe(false);
     expect(isNoShowConfirmed(3, 2)).toBe(true);
+  });
+  it("방 제목과 설명의 금지 표현을 띄어쓰기 우회까지 검출한다", () => {
+    expect(validateRideContent("주말 한강 라이딩", "초보 환영")).toBeUndefined();
+    expect(validateRideContent("건강 섹 스 라이딩")).toContain("사용할 수 없는");
   });
 });

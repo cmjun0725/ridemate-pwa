@@ -22,6 +22,7 @@ export interface Stop {
   name: string;
   kind: PlaceKind | "휴식";
   coordinate: Coordinate;
+  distanceFromRouteM?: number;
   selected?: boolean;
 }
 export interface Course {

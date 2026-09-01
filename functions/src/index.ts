@@ -38,6 +38,28 @@ const audit = (
     createdAt: FieldValue.serverTimestamp(),
   });
 
+const blockedRideTerms = [
+  "씨발",
+  "시발",
+  "개새끼",
+  "병신",
+  "좆",
+  "보지",
+  "자지",
+  "섹스",
+  "강간",
+  "fuck",
+  "sex",
+];
+const hasBlockedRideContent = (...values: Array<string | undefined>) => {
+  const normalized = values
+    .join(" ")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s._\-~!@#$%^&*()+=[\]{}|\\/<>?,:;'"`]+/g, "");
+  return blockedRideTerms.some((term) => normalized.includes(term));
+};
+
 type Point = { lat: number; lng: number };
 type TripType = "round" | "oneway";
 type UphillLevel = "low" | "medium" | "high";
@@ -571,7 +593,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
     coordinates?: Point[];
     elevationProfile?: Array<{ distanceKm: number; elevationM: number }>;
     climbSegments?: ClimbSegment[];
-    stops?: Array<{ id?: string; name?: string; kind?: string; coordinate?: Point; selected?: boolean }>;
+    stops?: Array<{ id?: string; name?: string; kind?: string; coordinate?: Point; distanceFromRouteM?: number; selected?: boolean }>;
   };
   if (
     !data.title?.trim() ||
@@ -587,6 +609,11 @@ export const createRidePlan = onCall({ region }, async (request) => {
     );
   if (data.purpose === "group" && (!data.startsAt || !Number.isFinite(new Date(data.startsAt).getTime()))) throw new HttpsError("invalid-argument", "함께 라이딩은 출발 날짜와 시간이 필요합니다.");
   if (!Number.isFinite(data.paceKmh) || Number(data.paceKmh) < 5 || Number(data.paceKmh) > 60) throw new HttpsError("invalid-argument", "목표 평속은 5~60km/h로 입력해 주세요.");
+  if (hasBlockedRideContent(data.title, data.description))
+    throw new HttpsError(
+      "invalid-argument",
+      "라이딩 제목이나 설명에 사용할 수 없는 표현이 포함되어 있습니다.",
+    );
   const userId = request.auth!.uid;
   const rideRef = db.collection("rides").doc();
   const courseRef = db.collection("courses").doc();
@@ -607,7 +634,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
       avgGradient: Math.max(0, Number(segment.avgGradient ?? 0)),
       coordinates: (segment.coordinates ?? []).filter(isPoint).slice(0, 100),
     })),
-    stops: (data.stops ?? []).filter(stop=>stop.name && isPoint(stop.coordinate)).slice(0,30).map(stop=>({id:String(stop.id??'').slice(0,120),name:String(stop.name).slice(0,100),kind:String(stop.kind??'휴식').slice(0,20),coordinate:stop.coordinate,selected:stop.selected===true})),
+    stops: (data.stops ?? []).filter(stop=>stop.name && isPoint(stop.coordinate)).slice(0,30).map(stop=>({id:String(stop.id??'').slice(0,120),name:String(stop.name).slice(0,100),kind:String(stop.kind??'휴식').slice(0,20),coordinate:stop.coordinate,distanceFromRouteM:Number.isFinite(Number((stop as {distanceFromRouteM?:number}).distanceFromRouteM))?Math.max(0,Math.min(5000,Math.round(Number((stop as {distanceFromRouteM?:number}).distanceFromRouteM)))):null,selected:stop.selected===true})),
     visibility: data.purpose === "solo" ? "private" : "public",
     createdBy: userId,
     createdAt: FieldValue.serverTimestamp(),
@@ -719,7 +746,7 @@ export const listPublicRides = onCall({ region }, async (request) => {
   const blockedIds = new Set<string>();
   if (request.auth?.uid) { const [mine, byOthers] = await Promise.all([db.collection("userBlocks").where("ownerId", "==", request.auth.uid).get(), db.collection("userBlocks").where("targetUserId", "==", request.auth.uid).get()]); mine.docs.forEach(row=>blockedIds.add(String(row.data().targetUserId))); byOthers.docs.forEach(row=>blockedIds.add(String(row.data().ownerId))); }
   const visible = rows.docs
-    .filter((row) => ["모집중", "마감"].includes(String(row.data().status)) && !blockedIds.has(String(row.data().hostId)))
+    .filter((row) => ["모집중", "마감"].includes(String(row.data().status)) && !blockedIds.has(String(row.data().hostId)) && !hasBlockedRideContent(String(row.data().title ?? ""), String(row.data().description ?? "")))
     .sort(
       (a, b) =>
         (a.data().startsAt?.toMillis?.() ?? 0) -
@@ -754,7 +781,7 @@ export const getRideDetails = onCall({ region }, async (request) => {
   if (!rideId)
     throw new HttpsError("invalid-argument", "라이딩 정보가 필요합니다.");
   const ride = await db.collection("rides").doc(rideId).get();
-  if (!ride.exists || ride.data()?.visibility !== "public")
+  if (!ride.exists || ride.data()?.visibility !== "public" || hasBlockedRideContent(String(ride.data()?.title ?? ""), String(ride.data()?.description ?? "")))
     throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
   const [course, members] = await Promise.all([
     db.collection("courses").doc(String(ride.data()!.courseId)).get(),

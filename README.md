@@ -38,19 +38,24 @@ cd functions && npm run build
 ## 필수 외부 설정
 
 1. Firebase 프로젝트에서 Authentication(이메일/비밀번호, Google), Firestore, Cloud Functions, Cloud Messaging을 활성화합니다.
-2. 카카오 개발자 앱을 만들고 GitHub Pages 주소를 플랫폼 도메인으로 등록합니다. JavaScript 키는 `VITE_KAKAO_MAP_KEY`에, REST 키는 서버 비밀 환경 변수에 저장합니다.
+2. 카카오 개발자 앱의 Web 플랫폼 도메인에 `https://clycling-community.web.app`을 등록합니다. JavaScript 키는 `VITE_KAKAO_MAP_KEY`에, REST 키는 서버 비밀 환경 변수에 저장합니다.
 3. OpenRouteService 계정을 만들고 자전거 프로필용 API 키를 Cloud Functions 비밀 환경 변수에 저장합니다. 브라우저에 키를 노출하지 않습니다.
-4. Cloud Messaging의 웹 푸시 인증서 공개 키를 GitHub Actions secret `VITE_FIREBASE_VAPID_KEY`로 등록합니다. 상세 절차는 [FCM VAPID 설정 가이드](docs/FCM_SETUP.md)를 따릅니다.
+4. Cloud Messaging의 웹 푸시 인증서 공개 키를 로컬 `.env.local`과 GitHub Actions secret `VITE_FIREBASE_VAPID_KEY`에 등록합니다. 상세 절차는 [FCM VAPID 설정 가이드](docs/FCM_SETUP.md)를 따릅니다.
 5. 카카오 OAuth는 카카오 REST 키를 Secret Manager에 추가하고 서버가 카카오 토큰을 검증한 뒤 Firebase Custom Token을 발급하도록 설정합니다. 현재 배포는 이메일·Google 로그인까지 제공합니다.
 6. 휴대폰·본인인증은 PASS/KCB 같은 국내 본인확인기관 계약 후 `identityStatus` 갱신 웹훅을 연결해야 합니다. 현재 UI는 미인증 상태를 명확히 표시합니다.
 7. 이용약관·개인정보·위치서비스 안내의 사업자 정보와 위치정보관리책임자를 정식 출시 전에 법률 검토 후 확정합니다.
-8. `firebase use <project-id>` 후 `firebase deploy --only firestore,functions`로 규칙과 함수를 배포합니다.
+8. `firebase use clycling-community` 후 `firebase deploy --only hosting,firestore,functions`로 웹 앱·규칙·함수를 배포합니다.
 
-## GitHub Pages
+## Firebase Hosting
 
-1. 이 폴더를 새 공개 GitHub 저장소 `ridemate-pwa`로 push합니다.
-2. 저장소 Settings → Pages에서 **GitHub Actions**를 배포 소스로 선택합니다.
-3. 기본 브랜치 `main`에 push하면 `.github/workflows/deploy-pages.yml`이 PWA를 배포합니다.
+프로덕션 주소는 [https://clycling-community.web.app](https://clycling-community.web.app)입니다. GitHub Pages 배포는 사용하지 않으며 앱의 base URL은 `/`입니다.
+
+```bash
+npm run build
+firebase deploy --only hosting --project clycling-community
+```
+
+`main` 브랜치에 push하면 `.github/workflows/ci.yml`이 앱과 Cloud Functions를 검사합니다. Hosting 배포는 Firebase CLI 로그인 또는 별도의 Firebase 서비스 계정 설정이 필요하므로 CI 성공과 분리합니다.
 
 Firebase 함수 배포에는 Firebase CLI 로그인 및 프로젝트 권한이 필요합니다. API 키·서비스 계정·VAPID 키는 Git에 커밋하지 마세요.
 

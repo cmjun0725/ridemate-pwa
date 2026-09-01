@@ -503,6 +503,36 @@ select {
   min-width: 0;
   width: 100%;
 }
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  border-radius: 14px;
+  padding-right: 42px;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m6.5 8 3.5 3.5L13.5 8' stroke='%230d745a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 20px;
+  box-shadow: 0 1px 2px #193c2d0a, inset 0 1px 0 #ffffffb8;
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+select:hover {
+  border-color: #9fc2b3;
+  background-color: #fbfefc;
+}
+select:focus-visible {
+  border-color: #0d745a;
+  box-shadow: 0 0 0 4px #0d745a1f, 0 2px 8px #173d2c12;
+}
+select:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+}
+select option {
+  background: #fff;
+  color: #283630;
+}
 .two {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -74,6 +74,12 @@ const fmt = (value: string) =>
   }).format(new Date(value));
 const routeColors = ["#087458", "#ef7d5f", "#4e65c5"];
 const emptyStops: Stop[] = [];
+const facilityMeta = {
+  편의점: { icon: "🏪", className: "convenience" },
+  화장실: { icon: "🚻", className: "restroom" },
+  정비소: { icon: "🔧", className: "repair" },
+  휴식: { icon: "●", className: "rest" },
+} as const;
 type SavedPlan = StoredRidePlan & {
   distanceKm?: number;
   elevationM?: number;
@@ -232,7 +238,25 @@ function CourseMap({
             title: "도착",
           });
         }
-        stops.forEach(stop=>new kakao.maps.Marker({position:new kakao.maps.LatLng(stop.coordinate.lat,stop.coordinate.lng),map,title:`${stop.kind} · ${stop.name}`}));
+        stops.forEach((stop) => {
+          const meta = facilityMeta[stop.kind];
+          const marker = document.createElement("div");
+          marker.className = `facility-marker ${meta.className}`;
+          marker.title = `${stop.kind} · ${stop.name}`;
+          const icon = document.createElement("span");
+          icon.className = "facility-marker-icon";
+          icon.textContent = meta.icon;
+          const name = document.createElement("span");
+          name.className = "facility-marker-name";
+          name.textContent = stop.name;
+          marker.append(icon, name);
+          new kakao.maps.CustomOverlay({
+            position: new kakao.maps.LatLng(stop.coordinate.lat, stop.coordinate.lng),
+            content: marker,
+            yAnchor: 1.15,
+            zIndex: stop.kind === "정비소" ? 5 : 4,
+          }).setMap(map);
+        });
         map.setBounds(bounds);
         if (active) setStatus("ready");
       })
@@ -273,8 +297,35 @@ function CourseMap({
           <span className="map-label">카카오맵 위 · 자전거 경로</span>
           <span className="cycle-badge">자동차 길찾기 아님 · ORS cycling</span>
           {climbSegments.length > 0 && <span className="uphill-legend">빨간색 · 업힐 구간</span>}
+          {stops.length > 0 && (
+            <span className="facility-legend" aria-label="편의시설 지도 범례">
+              <i className="convenience">🏪 편의점</i>
+              <i className="restroom">🚻 화장실</i>
+              <i className="repair">🔧 정비점</i>
+            </span>
+          )}
         </>
       )}
+    </div>
+  );
+}
+
+function FacilityList({ stops, loading = false, compact = false }: { stops: Stop[]; loading?: boolean; compact?: boolean }) {
+  if (loading) return <p className="muted">편의점·화장실·자전거 정비점 찾는 중…</p>;
+  if (!stops.length) return <p className="muted">코스 주변에서 확인된 편의시설이 없습니다.</p>;
+  return (
+    <div className={`facility-groups ${compact ? "compact" : ""}`}>
+      {(["편의점", "화장실", "정비소", "휴식"] as const).map((kind) => {
+        const rows = stops.filter((stop) => stop.kind === kind);
+        if (!rows.length) return null;
+        const meta = facilityMeta[kind];
+        return (
+          <section className={`facility-group ${meta.className}`} key={kind}>
+            <h3><span>{meta.icon}</span>{kind === "정비소" ? "자전거 정비점" : kind === "휴식" ? "지정 휴식 지점" : kind}<small>{rows.length}곳</small></h3>
+            <div>{rows.slice(0, compact ? 4 : undefined).map((stop) => <span key={stop.id} title={stop.name}>{stop.name}</span>)}</div>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -646,18 +697,9 @@ function RideDetail({
         {ride.description && <p>{ride.description}</p>}
       </article>
       <article className="info">
-        <h2>코스 정차 지점</h2>
+        <h2>코스 정차 지점·편의시설</h2>
         {stops.length ? (
-          stops.map((stop) => (
-            <p key={stop.id}>
-              <span className="dot" />
-              {stop.name}
-              <em>
-                {stop.kind}
-                {stop.selected ? " · 확정" : ""}
-              </em>
-            </p>
-          ))
+          <FacilityList stops={stops} />
         ) : (
           <p className="muted">아직 확정된 정차 지점이 없습니다.</p>
         )}
@@ -953,7 +995,7 @@ function CandidateResults({
           ))}
         </article>
       )}
-      <article className="poi-summary"><b>코스 주변 시설</b><p>{poisLoading?'편의점·화장실·정비소 찾는 중…':pois.length?`${pois.filter(p=>p.kind==='편의점').length} 편의점 · ${pois.filter(p=>p.kind==='화장실').length} 화장실 · ${pois.filter(p=>p.kind==='정비소').length} 정비소`:'주변 시설 검색 결과가 없습니다.'}</p><div>{pois.slice(0,6).map(stop=><span key={stop.id}>{stop.kind} · {stop.name}</span>)}</div></article>
+      <article className="poi-summary"><b>코스 주변 시설</b><FacilityList stops={pois} loading={poisLoading} compact /></article>
       <div className="candidate-list">
         {candidates.map((candidate, index) => (
           <button
@@ -1757,7 +1799,7 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
       )}
       <article className="info">
         <h2>코스 주변 편의시설</h2>
-        {loadingPois ? <p className="muted">편의점·화장실·정비소 찾는 중…</p> : stops.length ? stops.map((stop) => <p key={stop.id}><span className="dot" />{stop.name}<em>{stop.kind}</em></p>) : <p className="muted">저장된 시설 정보가 없습니다.</p>}
+        <FacilityList stops={stops} loading={loadingPois} />
       </article>
       {plan.description && <article className="info"><h2>라이딩 메모</h2><p>{plan.description}</p></article>}
     </section>

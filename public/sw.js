@@ -1,4 +1,4 @@
-const CACHE = "ridemate-shell-v5";
+const CACHE = "ridemate-shell-v6";
 const ASSETS = [
   "./",
   "./offline.html",
@@ -34,7 +34,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           if (response.ok)
             caches

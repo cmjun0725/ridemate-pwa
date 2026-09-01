@@ -514,6 +514,8 @@ function RideDetail({
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState<RideMessage[]>([]);
   const [chatText, setChatText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -536,10 +538,36 @@ function RideDetail({
     void trackProductEvent("ride_view").catch(() => undefined);
   }, [initialRide.id]);
   useEffect(() => {
-    if (joined)
-      void listRideMessages(ride.id)
-        .then(setChat)
-        .catch(() => undefined);
+    if (!joined) {
+      setChat([]);
+      return;
+    }
+    let active = true;
+    const refreshChat = async (initial = false) => {
+      if (initial) setChatLoading(true);
+      try {
+        const messages = await listRideMessages(ride.id);
+        if (!active) return;
+        setChat((current) => {
+          const currentLast = current.at(-1)?.id;
+          const nextLast = messages.at(-1)?.id;
+          return current.length === messages.length && currentLast === nextLast
+            ? current
+            : messages;
+        });
+        setChatError("");
+      } catch {
+        if (active) setChatError("대화를 새로 불러오지 못했습니다.");
+      } finally {
+        if (active && initial) setChatLoading(false);
+      }
+    };
+    void refreshChat(true);
+    const timer = window.setInterval(() => void refreshChat(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [joined, ride.id]);
   useEffect(() => {
     const point = ride.course.coordinates?.[0];
@@ -583,6 +611,7 @@ function RideDetail({
       await sendRideMessage(ride.id, chatText);
       setChatText("");
       setChat(await listRideMessages(ride.id));
+      setChatError("");
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -888,19 +917,34 @@ function RideDetail({
         <article className="info chat" aria-label="참여자 대화">
           <h2>
             <MessageCircle aria-hidden="true" /> 참여자 대화
+            <small className="chat-live">5초마다 자동 갱신</small>
           </h2>
-          <div className="chat-log" aria-live="polite">
+          <div className="chat-log" aria-live="polite" aria-busy={chatLoading}>
+            {chatLoading && !chat.length && (
+              <p className="muted">대화를 불러오는 중…</p>
+            )}
             {chat.map((row) => (
               <p key={row.id}>
-                <b>{row.authorName}</b>
+                <b>
+                  {row.authorName}
+                  {row.createdAt && (
+                    <time dateTime={row.createdAt}>
+                      {new Intl.DateTimeFormat("ko-KR", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }).format(new Date(row.createdAt))}
+                    </time>
+                  )}
+                </b>
                 <span>{row.text}</span>
               </p>
             ))}
-            {!chat.length && (
+            {!chatLoading && !chat.length && (
               <p className="muted">집합 장소와 정차 지점을 함께 정해보세요.</p>
             )}
             <div ref={chatEndRef} aria-hidden="true" />
           </div>
+          {chatError && <p className="form-error" role="status">{chatError}</p>}
           <form onSubmit={submitChat}>
             <input
               aria-label="메시지"
@@ -920,31 +964,50 @@ function RideDetail({
 }
 
 function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
+  const [enabled, setEnabled] = useState(!optional);
+  useEffect(() => setEnabled(!optional), [optional]);
   const hours = Array.from({ length: 12 }, (_, index) => index + 1);
+  const now = new Date();
+  const localToday = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
   return (
     <div
       className="date-time-fields"
       role="group"
       aria-label={optional ? "출발 날짜와 시간, 선택 사항" : "출발 날짜와 시간"}
     >
-      <div className="date-time-title">
-        출발 날짜와 시간 {optional && <span className="optional">선택</span>}
+      <div className="date-time-head">
+        <div className="date-time-title">
+          출발 날짜와 시간 {optional && <span className="optional">선택</span>}
+        </div>
+        {optional && (
+          <button
+            type="button"
+            className={`schedule-toggle ${enabled ? "active" : ""}`}
+            aria-pressed={enabled}
+            aria-expanded={enabled}
+            onClick={() => setEnabled((value) => !value)}
+          >
+            {enabled ? "일정 사용" : "일정 미정"}
+          </button>
+        )}
       </div>
-      <div className="date-time-grid">
+      {enabled ? <div className="date-time-grid">
         <label className="date-field">
           날짜
-          <input required={!optional} name="rideDate" type="date" />
+          <input required name="rideDate" type="date" defaultValue={localToday} />
         </label>
         <label>
           오전·오후
-          <select required={!optional} name="ridePeriod" defaultValue="AM">
+          <select required name="ridePeriod" defaultValue="AM">
             <option value="AM">오전</option>
             <option value="PM">오후</option>
           </select>
         </label>
         <label>
           시
-          <select required={!optional} name="rideHour" defaultValue="8">
+          <select required name="rideHour" defaultValue="8">
             {hours.map((hour) => (
               <option key={hour} value={hour}>
                 {hour}시
@@ -954,7 +1017,7 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
         </label>
         <label>
           분
-          <select required={!optional} name="rideMinute" defaultValue="00">
+          <select required name="rideMinute" defaultValue="00">
             <option value="00">00분</option>
             <option value="10">10분</option>
             <option value="20">20분</option>
@@ -963,10 +1026,12 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
             <option value="50">50분</option>
           </select>
         </label>
-      </div>
+      </div> : (
+        <p className="schedule-empty">날짜를 정하지 않고 계획만 저장합니다.</p>
+      )}
       <small className="field-help">
-        {optional
-          ? "일정을 정하지 않았다면 비워두어도 됩니다."
+        {optional && !enabled
+          ? "나중에 내 라이딩에서 계획을 확인하고 출발할 수 있어요."
           : "예: 9월 5일 · 오전 8시 30분"}
       </small>
     </div>
@@ -1004,15 +1069,16 @@ function CommonRideFields({ solo }: { solo: boolean }) {
           </label>
         ) : (
           <label key="capacity">
-            모집 인원
+            모집할 인원
             <input
               name="capacity"
               required
               type="number"
-              min="2"
-              max="50"
-              defaultValue="6"
+              min="1"
+              max="49"
+              defaultValue="5"
             />
+            <small>방장 제외 · 1~49명</small>
           </label>
         )}
       </div>
@@ -1208,7 +1274,7 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
         startName: place.name,
         startsAt: startsAtFrom(form),
         paceKmh: Number(form.get("paceKmh")),
-        capacity: solo ? 1 : Number(form.get("capacity")),
+        capacity: solo ? 1 : Number(form.get("capacity")) + 1,
         description: String(form.get("description") ?? ""),
       };
       setDraft(metadata);
@@ -1276,7 +1342,7 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
           routed.distanceKm,
         elevationM: routed.elevationM,
         paceKmh: Number(form.get("paceKmh")),
-        capacity: solo ? 1 : Number(form.get("capacity")),
+        capacity: solo ? 1 : Number(form.get("capacity")) + 1,
         description: String(form.get("description") ?? ""),
         coordinates: routed.coordinates,
         elevationProfile: routed.elevationProfile,
@@ -1387,7 +1453,7 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
               placeholder="예: 여의나루역, 광나루 자전거공원"
             />
           </label>
-          <div className="two">
+          <div className="two distance-row">
             <label>
               희망 거리
               <input
@@ -1400,15 +1466,25 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
               />
               <small>km</small>
             </label>
-            <label>
-              희망 업힐 정도
-              <select name="uphill" defaultValue="medium">
-                <option value="low">평지 위주</option>
-                <option value="medium">적당한 업힐</option>
-                <option value="high">업힐 도전</option>
-              </select>
-            </label>
           </div>
+          <fieldset className="uphill-picker">
+            <legend>희망 업힐 정도</legend>
+            <p>코스 1km당 상승고도 목표로 후보를 비교합니다.</p>
+            <div>
+              <label>
+                <input type="radio" name="uphill" value="low" />
+                <span><b>평지 위주</b><small>약 4m/km · 가볍게</small></span>
+              </label>
+              <label>
+                <input type="radio" name="uphill" value="medium" defaultChecked />
+                <span><b>균형</b><small>약 10m/km · 적당한 업힐</small></span>
+              </label>
+              <label>
+                <input type="radio" name="uphill" value="high" />
+                <span><b>도전</b><small>약 19m/km · 업힐 중심</small></span>
+              </label>
+            </div>
+          </fieldset>
           <fieldset>
             <legend>라이딩 유형</legend>
             <div className="segmented">

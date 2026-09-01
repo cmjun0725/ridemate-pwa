@@ -920,6 +920,11 @@ export const sendRideMessage = onCall({ region }, async (request) => {
       "invalid-argument",
       "메시지는 1~500자로 입력해 주세요.",
     );
+  if (hasBlockedRideContent(message))
+    throw new HttpsError(
+      "invalid-argument",
+      "대화에 사용할 수 없는 표현이 포함되어 있습니다.",
+    );
   if (
     !(
       await db
@@ -942,6 +947,64 @@ export const sendRideMessage = onCall({ region }, async (request) => {
   });
   return { id: row.id };
 });
+
+export const notifyRideMessage = onDocumentCreated(
+  { region, document: "rideMessages/{messageId}" },
+  async (event) => {
+    const data = event.data?.data();
+    const rideId = String(data?.rideId ?? "");
+    const senderId = String(data?.userId ?? "");
+    if (!rideId || !senderId) return;
+
+    const members = await db
+      .collection("rideMembers")
+      .where("rideId", "==", rideId)
+      .limit(50)
+      .get();
+    const recipientIds = Array.from(
+      new Set(
+        members.docs
+          .map((row) => String(row.data().userId ?? ""))
+          .filter((userId) => userId && userId !== senderId),
+      ),
+    );
+    if (!recipientIds.length) return;
+
+    const profiles = await db.getAll(
+      ...recipientIds.map((userId) => db.collection("users").doc(userId)),
+    );
+    const enabledIds = profiles
+      .filter((row) => row.data()?.notifications?.chat !== false)
+      .map((row) => row.id);
+    if (!enabledIds.length) return;
+
+    const tokenRows = await Promise.all(
+      Array.from({ length: Math.ceil(enabledIds.length / 10) }, (_, index) =>
+        db
+          .collection("deviceTokens")
+          .where("userId", "in", enabledIds.slice(index * 10, index * 10 + 10))
+          .get(),
+      ),
+    );
+    const tokens = Array.from(
+      new Set(
+        tokenRows.flatMap((rows) =>
+          rows.docs.map((row) => String(row.data().token ?? "")).filter(Boolean),
+        ),
+      ),
+    ).slice(0, 500);
+    if (!tokens.length) return;
+
+    await getMessaging().sendEachForMulticast({
+      tokens,
+      notification: {
+        title: `${String(data?.authorName ?? "참여자")}님의 새 메시지`,
+        body: String(data?.text ?? "").slice(0, 100),
+      },
+      data: { rideId, url: "./?view=my" },
+    });
+  },
+);
 
 export const saveRiderSettings = onCall({ region }, async (request) => {
   requireAuth(request.auth?.uid);

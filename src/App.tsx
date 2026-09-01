@@ -36,6 +36,7 @@ import {
   bootstrapAdmin,
   createRideReview,
   createRidePlan,
+  finishPublicRide,
   getRideDetails,
   getRiderSettings,
   getRideWeather,
@@ -52,13 +53,15 @@ import {
   sendRideMessage,
   setFavoriteRide,
   setUserBlocked,
+  startPublicRide,
   trackProductEvent,
   updateLiveLocation,
   type RideMessage,
   type RidePlanInput,
   type RiderSettings,
+  type StoredRidePlan,
 } from "./services";
-import type { Coordinate, ElevationPoint, Ride, RouteCandidate, Stop } from "./types";
+import type { ClimbSegment, Coordinate, ElevationPoint, Ride, RouteCandidate, Stop } from "./types";
 
 type Tab = "home" | "search" | "create" | "my" | "profile";
 const fmt = (value: string) =>
@@ -71,20 +74,32 @@ const fmt = (value: string) =>
   }).format(new Date(value));
 const routeColors = ["#087458", "#ef7d5f", "#4e65c5"];
 const emptyStops: Stop[] = [];
-type SavedPlan = {
-  id: string;
-  title: string;
-  purpose: "group" | "solo";
-  distanceKm: number;
-  elevationM: number;
-  startName: string;
-  createdAt: string;
+type SavedPlan = StoredRidePlan & {
+  distanceKm?: number;
+  elevationM?: number;
+  startName?: string;
 };
 const readPlans = (): SavedPlan[] => {
   try {
-    return JSON.parse(
+    const legacy = JSON.parse(
       localStorage.getItem("ridemate-plans") ?? "[]",
-    ) as SavedPlan[];
+    ) as Array<Partial<SavedPlan> & { distanceKm?: number; elevationM?: number; startName?: string }>;
+    return legacy.flatMap((plan) =>
+      plan.id && plan.title && plan.purpose
+        ? [{
+            id: plan.id,
+            title: plan.title,
+            purpose: plan.purpose,
+            status: plan.status ?? "계획",
+            createdAt: plan.createdAt,
+            course: plan.course ?? {
+              startName: plan.startName,
+              distanceKm: plan.distanceKm,
+              elevationM: plan.elevationM,
+            },
+          }]
+        : [],
+    );
   } catch {
     return [];
   }
@@ -149,11 +164,13 @@ function CourseMap({
   selected = 0,
   label = "코스 지도",
   stops = emptyStops,
+  climbSegments = [],
 }: {
   routes: Coordinate[][];
   selected?: number;
   label?: string;
   stops?: Stop[];
+  climbSegments?: ClimbSegment[];
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -165,12 +182,12 @@ function CourseMap({
     setStatus("loading");
     loadKakaoMaps()
       .then((kakao) => {
-        if (
-          !active ||
-          !container.current ||
-          !routes.some((route) => route.length)
-        )
+        if (!active || !container.current) return;
+        if (!routes.some((route) => route.length)) {
+          setStatus("error");
+          setMessage("저장된 경로 좌표가 없습니다.");
           return;
+        }
         const first = routes.find((route) => route.length)![0];
         const map = new kakao.maps.Map(container.current, {
           center: new kakao.maps.LatLng(first.lat, first.lng),
@@ -188,6 +205,17 @@ function CourseMap({
             strokeWeight: index === selected ? 7 : 4,
             strokeColor: routeColors[index] ?? "#59666f",
             strokeOpacity: index === selected ? 0.95 : 0.55,
+          }).setMap(map);
+        });
+        climbSegments.forEach((segment) => {
+          if (segment.coordinates.length < 2) return;
+          new kakao.maps.Polyline({
+            path: segment.coordinates.map(
+              (point) => new kakao.maps.LatLng(point.lat, point.lng),
+            ),
+            strokeWeight: 8,
+            strokeColor: "#d92d20",
+            strokeOpacity: 0.9,
           }).setMap(map);
         });
         const route = routes[selected] ?? routes[0];
@@ -221,7 +249,7 @@ function CourseMap({
     return () => {
       active = false;
     };
-  }, [routes, selected, stops]);
+  }, [routes, selected, stops, climbSegments]);
   return (
     <div
       className={`map live-map ${status === "error" ? "map-error" : ""}`}
@@ -244,6 +272,7 @@ function CourseMap({
         <>
           <span className="map-label">카카오맵 위 · 자전거 경로</span>
           <span className="cycle-badge">자동차 길찾기 아님 · ORS cycling</span>
+          {climbSegments.length > 0 && <span className="uphill-legend">빨간색 · 업힐 구간</span>}
         </>
       )}
     </div>
@@ -442,8 +471,23 @@ function RideDetail({
     );
   };
   const targetId = ride.hostId ?? ride.host?.id;
+  const isHost = auth?.currentUser?.uid === ride.hostId;
   const members = ride.members ?? [];
   const stops = ride.course.stops ?? [];
+  const changeRideStatus = async (action: "start" | "finish") => {
+    setBusy(true);
+    setMessage("");
+    try {
+      if (action === "start") await startPublicRide(ride.id);
+      else await finishPublicRide(ride.id);
+      setRide(await getRideDetails(ride.id));
+      setMessage(action === "start" ? "라이딩을 시작했습니다. 경로와 안전 정보를 확인하세요." : "라이딩을 종료했습니다.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "라이딩 상태를 변경하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <section className="page detail">
       <button className="back" onClick={onBack}>
@@ -453,20 +497,30 @@ function RideDetail({
         routes={[ride.course.coordinates ?? []]}
         label={ride.course.title}
         stops={ride.course.stops ?? emptyStops}
+        climbSegments={ride.course.climbSegments ?? []}
       />
+      <div className="ride-flow" aria-label="라이딩 진행 단계">
+        <span className="done">1 코스 선정</span>
+        <span className={ride.status !== "계획" ? "done" : ""}>2 인원 모집</span>
+        <span className={["진행중", "완료"].includes(ride.status) ? "done" : ""}>3 실제 라이딩</span>
+      </div>
       <div className="detail-head">
         <div>
           <span className="eyebrow">{ride.status}</span>
           <h1>{ride.title}</h1>
           <p>{fmt(ride.startsAt)}</p>
         </div>
-        <button
-          disabled={busy}
-          className={joined ? "secondary" : "primary"}
-          onClick={toggleJoin}
-        >
-          {busy ? "처리 중…" : joined ? "참여 취소" : "라이딩 참여"}
-        </button>
+        {isHost ? (
+          ride.status === "진행중" ? (
+            <button disabled={busy} className="primary" onClick={() => void changeRideStatus("finish")}>{busy ? "처리 중…" : "라이딩 종료"}</button>
+          ) : ["모집중", "마감", "계획"].includes(ride.status) ? (
+            <button disabled={busy} className="primary" onClick={() => void changeRideStatus("start")}>{busy ? "처리 중…" : "라이딩 시작"}</button>
+          ) : null
+        ) : ["모집중", "마감"].includes(ride.status) ? (
+          <button disabled={busy} className={joined ? "secondary" : "primary"} onClick={toggleJoin}>
+            {busy ? "처리 중…" : joined ? "참여 취소" : "라이딩 참여"}
+          </button>
+        ) : null}
       </div>
       {message && (
         <p className="status-message" role="status">
@@ -560,6 +614,23 @@ function RideDetail({
           {ride.paceKmh} km/h<small>목표 평속</small>
         </span>
       </div>
+      {(ride.course.elevationProfile?.length ?? 0) > 1 && (
+        <ElevationChart points={ride.course.elevationProfile ?? []} />
+      )}
+      {(ride.course.climbSegments?.length ?? 0) > 0 && (
+        <article className="info climb-list">
+          <h2><Mountain /> 분석된 업힐</h2>
+          {(ride.course.climbSegments ?? []).map((segment, index) => (
+            <p key={segment.id}><b>{index + 1}번째 업힐</b><span>{segment.startKm}–{segment.endKm}km · +{segment.gainM}m · 평균 {segment.avgGradient}%</span></p>
+          ))}
+        </article>
+      )}
+      {ride.status === "진행중" && joined && (
+        <article className="riding-mode" role="status">
+          <b>라이딩 모드 진행 중</b>
+          <p>빨간 업힐과 정차 지점을 확인하고, 필요하면 안전 위치 공유를 켜세요.</p>
+        </article>
+      )}
       {weather && (
         <article className="info weather">
           <h2>출발지 날씨</h2>
@@ -824,7 +895,7 @@ function CandidateResults({
     })();
     const metadata = { ...cached, ...draft };
     const startName =
-      candidate.startName ?? String(metadata.startName ?? "AI 추천 출발지");
+      candidate.startName ?? String(metadata.startName ?? "데이터 분석 출발지");
     setSaving(true);
     try {
       if (!auth?.currentUser)
@@ -844,6 +915,7 @@ function CandidateResults({
         description: metadata.description,
         coordinates: candidate.coordinates,
         elevationProfile: candidate.elevationProfile,
+        climbSegments: candidate.climbSegments,
         stops: pois,
       });
       await trackProductEvent("course_created");
@@ -869,8 +941,18 @@ function CandidateResults({
         selected={selected}
         label="추천 후보 비교"
         stops={pois}
+        climbSegments={candidates[selected]?.climbSegments ?? []}
       />
       <ElevationChart points={candidates[selected]?.elevationProfile ?? []} />
+      {(candidates[selected]?.climbSegments.length ?? 0) > 0 && (
+        <article className="climb-list candidate-climbs">
+          <b>빨간색 업힐 분석</b>
+          <p>코스 후보를 바꾸며 포함된 업힐을 비교하세요.</p>
+          {candidates[selected].climbSegments.slice(0, 5).map((segment, index) => (
+            <span key={segment.id}>{index + 1}번째 · {segment.startKm}–{segment.endKm}km · +{segment.gainM}m · {segment.avgGradient}%</span>
+          ))}
+        </article>
+      )}
       <article className="poi-summary"><b>코스 주변 시설</b><p>{poisLoading?'편의점·화장실·정비소 찾는 중…':pois.length?`${pois.filter(p=>p.kind==='편의점').length} 편의점 · ${pois.filter(p=>p.kind==='화장실').length} 화장실 · ${pois.filter(p=>p.kind==='정비소').length} 정비소`:'주변 시설 검색 결과가 없습니다.'}</p><div>{pois.slice(0,6).map(stop=><span key={stop.id}>{stop.kind} · {stop.name}</span>)}</div></article>
       <div className="candidate-list">
         {candidates.map((candidate, index) => (
@@ -895,7 +977,7 @@ function CandidateResults({
               className={`verified ${candidate.recommended ? "recommended" : ""}`}
             >
               {candidate.recommended
-                ? `추천 · ${candidate.waterwayName ?? "수변길"}`
+                ? "조건 최적 · 추천"
                 : "검증됨"}
             </span>
           </button>
@@ -914,7 +996,7 @@ function CandidateResults({
 
 function CreateRide({ onCreated }: { onCreated: () => void }) {
   const [purpose, setPurpose] = useState<"group" | "solo">("group");
-  const [mode, setMode] = useState<"ai" | "manual">("ai");
+  const [mode, setMode] = useState<"guided" | "manual">("guided");
   const [tripType, setTripType] = useState<"round" | "oneway">("round");
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
   const [, setDraft] = useState<Partial<RidePlanInput>>({});
@@ -922,7 +1004,7 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
   const [error, setError] = useState("");
   const [manualDone, setManualDone] = useState(false);
   const solo = purpose === "solo";
-  const submitAi = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submitGuided = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!auth?.currentUser) {
       setError("먼저 로그인한 뒤 코스를 만들 수 있어요.");
@@ -1004,6 +1086,7 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
         description: String(form.get("description") ?? ""),
         coordinates: routed.coordinates,
         elevationProfile: routed.elevationProfile,
+        climbSegments: (routed as { climbSegments?: ClimbSegment[] }).climbSegments ?? [],
         stops,
       });
       await trackProductEvent("course_created");
@@ -1067,15 +1150,15 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
       </div>
       <div className="mode-cards">
         <button
-          className={mode === "ai" ? "active" : ""}
+          className={mode === "guided" ? "active" : ""}
           onClick={() => {
-            setMode("ai");
+            setMode("guided");
             setCandidates([]);
           }}
         >
           <Route />
-          <b>AI 코스 추천</b>
-          <small>거리·업힐 조건으로 3개 추천</small>
+          <b>데이터 기반 코스 설계</b>
+          <small>자전거 도로·거리·고도로 3개 계산</small>
         </button>
         <button
           className={mode === "manual" ? "active" : ""}
@@ -1089,15 +1172,19 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
           <small>출발·도착·정차 정보를 수동 작성</small>
         </button>
       </div>
-      {mode === "ai" && candidates.length ? (
+      {mode === "guided" && candidates.length ? (
         <CandidateResults
           candidates={candidates}
           onReset={() => setCandidates([])}
           onCreated={onCreated}
           solo={solo}
         />
-      ) : mode === "ai" ? (
-        <form onSubmit={submitAi}>
+      ) : mode === "guided" ? (
+        <form onSubmit={submitGuided}>
+          <article className="notice route-method">
+            <b>AI를 사용하지 않습니다</b>
+            <p>전국 OSM 자전거 가능 도로망에서 여러 방향을 탐색하고, ORS 실측 거리·고도와 희망 업힐 조건을 점수화합니다.</p>
+          </article>
           <label>
             출발 지점
             <input
@@ -1155,8 +1242,8 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
           )}
           <button className="primary wide" type="submit" disabled={loading}>
             {loading
-              ? "AI 후보 생성·자전거 경로·고도 검증 중…"
-              : "추천 코스 3개 찾기"}
+              ? "자전거 도로 탐색·거리·고도 분석 중…"
+              : "조건으로 코스 3개 계산"}
           </button>
         </form>
       ) : (
@@ -1628,59 +1715,90 @@ function LoginPanel() {
   );
 }
 
+function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void }) {
+  const route = useMemo(() => plan.course.coordinates ?? [], [plan.course.coordinates]);
+  const [stops, setStops] = useState(plan.course.stops ?? []);
+  const [loadingPois, setLoadingPois] = useState(false);
+  const [status, setStatus] = useState(plan.status);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (stops.length || route.length < 2) return;
+    setLoadingPois(true);
+    void searchCoursePois(route)
+      .then(setStops)
+      .catch(() => undefined)
+      .finally(() => setLoadingPois(false));
+  }, [route, stops.length]);
+  return (
+    <section className="page detail saved-detail">
+      <button className="back" onClick={onBack}>← 내 라이딩으로</button>
+      <CourseMap
+        routes={[route]}
+        label={`${plan.title} 저장 코스`}
+        stops={stops}
+        climbSegments={plan.course.climbSegments ?? []}
+      />
+      <div className="detail-head">
+        <div><span className="eyebrow">{status}</span><h1>{plan.title}</h1><p>{plan.startsAt ? fmt(plan.startsAt) : "날짜·시간 미정"}</p></div>
+        {status === "진행중" ? (
+          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);try{await finishPublicRide(plan.id);setStatus("완료")}finally{setBusy(false)}}}>라이딩 종료</button>
+        ) : ["계획","모집중","마감"].includes(status) ? (
+          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);try{await startPublicRide(plan.id);setStatus("진행중")}finally{setBusy(false)}}}>라이딩 시작</button>
+        ) : null}
+      </div>
+      <div className="stat-grid">
+        <span><Route />{Number(plan.course.distanceKm ?? 0)} km<small>거리</small></span>
+        <span><Mountain />{Number(plan.course.elevationM ?? 0)} m<small>누적 상승</small></span>
+        <span><Clock3 />{Number(plan.paceKmh ?? 0)} km/h<small>목표 평속</small></span>
+      </div>
+      {(plan.course.elevationProfile?.length ?? 0) > 1 && <ElevationChart points={plan.course.elevationProfile ?? []} />}
+      {(plan.course.climbSegments?.length ?? 0) > 0 && (
+        <article className="info climb-list"><h2><Mountain /> 업힐 구간</h2>{(plan.course.climbSegments ?? []).map((segment, index) => <p key={segment.id}><b>{index + 1}번째 업힐</b><span>{segment.startKm}–{segment.endKm}km · +{segment.gainM}m · 평균 {segment.avgGradient}%</span></p>)}</article>
+      )}
+      <article className="info">
+        <h2>코스 주변 편의시설</h2>
+        {loadingPois ? <p className="muted">편의점·화장실·정비소 찾는 중…</p> : stops.length ? stops.map((stop) => <p key={stop.id}><span className="dot" />{stop.name}<em>{stop.kind}</em></p>) : <p className="muted">저장된 시설 정보가 없습니다.</p>}
+      </article>
+      {plan.description && <article className="info"><h2>라이딩 메모</h2><p>{plan.description}</p></article>}
+    </section>
+  );
+}
+
+function SavedGroupRide({ plan, onBack }: { plan: SavedPlan; onBack: () => void }) {
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    void getRideDetails(plan.id)
+      .then(setRide)
+      .catch(() => setError("라이딩 상세를 불러오지 못했습니다."));
+  }, [plan.id]);
+  if (ride) return <RideDetail ride={ride} onBack={onBack} />;
+  return <section className="page"><button className="back" onClick={onBack}>← 내 라이딩으로</button>{error ? <p className="form-error">{error}</p> : <div className="skeleton-card" aria-label="라이딩 상세 불러오는 중" />}</section>;
+}
+
 function MyRides() {
-  const [plans, setPlans] = useState(readPlans);
-  const remove = (id: string) => {
-    const next = plans.filter((plan) => plan.id !== id);
-    localStorage.setItem("ridemate-plans", JSON.stringify(next));
-    setPlans(next);
-  };
+  const [plans, setPlans] = useState<SavedPlan[]>(readPlans);
+  const [selected, setSelected] = useState<SavedPlan | null>(null);
   useEffect(() => {
     if (auth?.currentUser)
       void listMyRidePlans()
-        .then((rows) =>
-          setPlans(
-            rows.map((row) => ({
-              id: row.id,
-              title: row.title,
-              purpose: row.purpose,
-              distanceKm: Number(row.course.distanceKm ?? 0),
-              elevationM: Number(row.course.elevationM ?? 0),
-              startName: String(row.course.startName ?? "-"),
-              createdAt: row.createdAt ?? "",
-            })),
-          ),
-        )
+        .then(setPlans)
         .catch(() => undefined);
   }, []);
+  if (selected) return selected.purpose === "group" ? <SavedGroupRide plan={selected} onBack={() => setSelected(null)} /> : <SavedRideDetail plan={selected} onBack={() => setSelected(null)} />;
   return (
     <section className="page">
       <h1>내 라이딩</h1>
-      <p className="sub">이 기기에 저장한 모집 방과 혼자 라이딩 계획입니다.</p>
+      <p className="sub">저장한 코스와 모집 방을 누르면 경로·업힐·편의시설을 확인할 수 있어요.</p>
       <div className="list">
         {plans.map((plan) => (
-          <article className="saved-plan" key={plan.id}>
-            <span>
-              {plan.purpose === "solo" ? "혼자 라이딩" : "함께 라이딩"}
-            </span>
-            <button
-              aria-label={`${plan.title} 삭제`}
-              onClick={() => remove(plan.id)}
-            >
-              <X size={16} />
-            </button>
+          <button className="saved-plan saved-plan-button" key={plan.id} onClick={() => setSelected(plan)}>
+            <span>{plan.purpose === "solo" ? "혼자 라이딩" : plan.status}</span>
+            <ChevronRight size={18} />
             <h3>{plan.title}</h3>
-            <p>
-              <MapPin size={14} />
-              {plan.startName}
-            </p>
-            <div>
-              <b>{plan.distanceKm}km</b>
-              <b>
-                상승 {plan.elevationM ? `${plan.elevationM}m` : "수동 입력"}
-              </b>
-            </div>
-          </article>
+            <p><MapPin size={14} />{String(plan.course.startName ?? plan.startName ?? "출발지 미정")}</p>
+            <div><b>{Number(plan.course.distanceKm ?? plan.distanceKm ?? 0)}km</b><b>상승 {Number(plan.course.elevationM ?? plan.elevationM ?? 0)}m</b></div>
+          </button>
         ))}
         {!plans.length && (
           <p className="empty">

@@ -1,5 +1,5 @@
 export type PlaceKind = "편의점" | "화장실" | "정비소";
-export type RideStatus = "모집중" | "마감" | "완료";
+export type RideStatus = "계획" | "모집중" | "마감" | "진행중" | "완료";
 
 export interface Coordinate {
   lat: number;
@@ -8,6 +8,14 @@ export interface Coordinate {
 export interface ElevationPoint {
   distanceKm: number;
   elevationM: number;
+}
+export interface ClimbSegment {
+  id: string;
+  startKm: number;
+  endKm: number;
+  gainM: number;
+  avgGradient: number;
+  coordinates: Coordinate[];
 }
 export interface Stop {
   id: string;
@@ -24,6 +32,8 @@ export interface Course {
   distanceKm: number;
   elevationM: number;
   coordinates: Coordinate[];
+  elevationProfile?: ElevationPoint[];
+  climbSegments?: ClimbSegment[];
   stops: Stop[];
   createdAt: string;
 }
@@ -62,5 +72,7 @@ export interface RouteCandidate {
   distanceDifferenceKm: number;
   coordinates: Coordinate[];
   elevationProfile: ElevationPoint[];
+  climbSegments: ClimbSegment[];
+  score?: number;
   verified: boolean;
 }

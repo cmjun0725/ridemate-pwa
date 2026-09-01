@@ -1,6 +1,6 @@
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
-import type { Coordinate, Ride, RouteCandidate, Stop } from "./types";
+import type { ClimbSegment, Coordinate, ElevationPoint, Ride, RouteCandidate, Stop } from "./types";
 
 export async function requestCourseCandidates(input: {
   start: Coordinate;
@@ -25,6 +25,7 @@ export const requestManualRoute = (start: Coordinate, end: Coordinate) =>
       distanceKm: number;
       elevationM: number;
       elevationProfile: Array<{ distanceKm: number; elevationM: number }>;
+      climbSegments: ClimbSegment[];
     }
   >("recommendRoute", { start, end });
 
@@ -41,6 +42,7 @@ export type RidePlanInput = {
   description?: string;
   coordinates?: Coordinate[];
   elevationProfile?: Array<{ distanceKm: number; elevationM: number }>;
+  climbSegments?: ClimbSegment[];
   stops?: Stop[];
 };
 export type StoredRidePlan = {
@@ -48,6 +50,8 @@ export type StoredRidePlan = {
   title: string;
   purpose: "group" | "solo";
   status: string;
+  hostId?: string;
+  memberCount?: number;
   startsAt?: string;
   createdAt?: string;
   course: {
@@ -55,7 +59,14 @@ export type StoredRidePlan = {
     endName?: string;
     distanceKm?: number;
     elevationM?: number;
+    coordinates?: Coordinate[];
+    elevationProfile?: ElevationPoint[];
+    climbSegments?: ClimbSegment[];
+    stops?: Stop[];
   };
+  paceKmh?: number;
+  capacity?: number;
+  description?: string;
 };
 export type AdminDashboardData = {
   stats: { users: number; rides: number; openReports: number; noShows: number };
@@ -99,6 +110,10 @@ export const joinPublicRide = (rideId: string) =>
   callable<{ rideId: string }, { ok: boolean }>("joinRide", { rideId });
 export const leavePublicRide = (rideId: string) =>
   callable<{ rideId: string }, { ok: boolean }>("leaveRide", { rideId });
+export const startPublicRide = (rideId: string) =>
+  callable<{ rideId: string }, { ok: boolean }>("startRide", { rideId });
+export const finishPublicRide = (rideId: string) =>
+  callable<{ rideId: string }, { ok: boolean }>("finishRide", { rideId });
 export type RideMessage = {
   id: string;
   userId: string;

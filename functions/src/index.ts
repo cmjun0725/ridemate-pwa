@@ -11,7 +11,6 @@ initializeApp();
 const db = getFirestore();
 const region = "asia-northeast3";
 const openRouteServiceKey = defineSecret("OPENROUTESERVICE_API_KEY");
-const openRouterKey = defineSecret("OPENROUTER_API_KEY");
 const adminEmails = defineSecret("ADMIN_EMAILS");
 const requireAuth = (uid?: string) => {
   if (!uid) throw new HttpsError("unauthenticated", "로그인이 필요합니다.");
@@ -42,7 +41,19 @@ const audit = (
 type Point = { lat: number; lng: number };
 type TripType = "round" | "oneway";
 type UphillLevel = "low" | "medium" | "high";
-type AiCandidate = { title: string; summary: string; waypoints: Point[] };
+type RouteSeed = {
+  bearing: number;
+  direction: string;
+  waypoints: Point[];
+};
+type ClimbSegment = {
+  id: string;
+  startKm: number;
+  endKm: number;
+  gainM: number;
+  avgGradient: number;
+  coordinates: Point[];
+};
 
 const isPoint = (point?: Point) =>
   Boolean(
@@ -87,22 +98,89 @@ const segmentDistanceKm = (a: number[], b: number[]) => {
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
   return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 };
-const fallbackCandidates = (
+const buildRouteSeeds = (
   start: Point,
   distanceKm: number,
   tripType: TripType,
-): AiCandidate[] =>
-  [35, 155, 275].map((bearing, index) => ({
-    title: `추천 코스 ${index + 1}`,
-    summary: "도로 연결성과 고도 데이터를 기준으로 생성한 후보입니다.",
-    waypoints: [
-      destinationPoint(
-        start,
-        tripType === "round" ? distanceKm / 2.4 : distanceKm * 0.78,
+): RouteSeed[] => {
+  const directions = [
+    [15, "북동쪽"],
+    [75, "동쪽"],
+    [135, "남동쪽"],
+    [195, "남서쪽"],
+    [255, "서쪽"],
+    [315, "북서쪽"],
+  ] as const;
+  return directions.map(([bearing, direction]) => {
+    if (tripType === "oneway") {
+      return {
         bearing,
-      ),
-    ],
-  }));
+        direction,
+        waypoints: [destinationPoint(start, distanceKm * 0.76, bearing)],
+      };
+    }
+    const radius = Math.max(1.5, distanceKm / 3.35);
+    return {
+      bearing,
+      direction,
+      waypoints: [
+        destinationPoint(start, radius, bearing - 32),
+        destinationPoint(start, radius, bearing + 32),
+      ],
+    };
+  });
+};
+const detectClimbs = (geometry: number[][]): ClimbSegment[] => {
+  const distances = [0];
+  for (let index = 1; index < geometry.length; index += 1) {
+    distances[index] =
+      distances[index - 1] + segmentDistanceKm(geometry[index - 1], geometry[index]);
+  }
+  const climbs: ClimbSegment[] = [];
+  let startIndex: number | null = null;
+  let gain = 0;
+  let gapDistance = 0;
+  const finish = (endIndex: number) => {
+    if (startIndex === null || endIndex <= startIndex) return;
+    const climbStart = startIndex;
+    const lengthKm = distances[endIndex] - distances[climbStart];
+    if (lengthKm >= 0.18 && gain >= 8) {
+      const sampleEvery = Math.max(1, Math.ceil((endIndex - climbStart + 1) / 45));
+      const coordinates = geometry
+        .slice(climbStart, endIndex + 1)
+        .filter((_, index) => index % sampleEvery === 0 || index === endIndex - climbStart)
+        .map(([lng, lat]) => ({ lat, lng }));
+      climbs.push({
+        id: `climb-${climbs.length + 1}`,
+        startKm: Math.round(distances[climbStart] * 10) / 10,
+        endKm: Math.round(distances[endIndex] * 10) / 10,
+        gainM: Math.round(gain),
+        avgGradient: Math.round((gain / (lengthKm * 1000)) * 1000) / 10,
+        coordinates,
+      });
+    }
+    startIndex = null;
+    gain = 0;
+    gapDistance = 0;
+  };
+  for (let index = 1; index < geometry.length; index += 1) {
+    const segmentKm = distances[index] - distances[index - 1];
+    const elevationGain = Number(geometry[index][2]) - Number(geometry[index - 1][2]);
+    const gradient = segmentKm > 0 ? (elevationGain / (segmentKm * 1000)) * 100 : 0;
+    if (Number.isFinite(gradient) && gradient >= 2.2 && elevationGain > 0) {
+      if (startIndex === null) startIndex = index - 1;
+      gain += elevationGain;
+      gapDistance = 0;
+    } else if (startIndex !== null && segmentKm <= 0.08 && gapDistance + segmentKm <= 0.16) {
+      gapDistance += segmentKm;
+      if (elevationGain > 0) gain += elevationGain;
+    } else {
+      finish(index - 1);
+    }
+  }
+  finish(geometry.length - 1);
+  return climbs.sort((a, b) => b.gainM - a.gainM).slice(0, 12);
+};
 const callOrs = async (coordinates: Point[]) => {
   const response = await fetch(
     "https://api.openrouteservice.org/v2/directions/cycling-regular/geojson",
@@ -162,6 +240,7 @@ const callOrs = async (coordinates: Point[]) => {
     distanceKm: Math.round((route.properties.summary.distance ?? 0) / 100) / 10,
     elevationM: Math.round(ascent!),
     elevationProfile,
+    climbSegments: detectClimbs(route.geometry.coordinates),
   };
 };
 const enforceRecommendationLimit = async (ip: string) => {
@@ -169,7 +248,7 @@ const enforceRecommendationLimit = async (ip: string) => {
     .update(ip || "unknown")
     .digest("hex")
     .slice(0, 32);
-  const ref = db.collection("aiRateLimits").doc(key);
+  const ref = db.collection("recommendationRateLimits").doc(key);
   const now = Date.now();
   await db.runTransaction(async (tx) => {
     const row = await tx.get(ref);
@@ -195,7 +274,7 @@ const enforceRecommendationLimit = async (ip: string) => {
 export const recommendCourses = onCall(
   {
     region,
-    secrets: [openRouteServiceKey, openRouterKey],
+    secrets: [openRouteServiceKey],
     timeoutSeconds: 90,
     memory: "512MiB",
   },
@@ -221,124 +300,38 @@ export const recommendCourses = onCall(
         "추천 조건을 다시 확인해 주세요.",
       );
     await enforceRecommendationLimit(request.rawRequest.ip ?? "unknown");
-    const prompt = `대한민국 자전거 라이딩 코스 설계자 역할을 수행하세요. 출발지는 ${startName} (${start!.lat}, ${start!.lng}), 희망 거리는 ${distanceKm}km, 라이딩 유형은 ${tripType === "round" ? "왕복/순환" : "편도"}, 업힐 선호는 ${uphill}입니다. 실제 자전거가 접근하기 좋은 서로 다른 방향의 후보 3개를 제안하세요. 출발지 주변에 양재천·탄천·안양천·중랑천·한강처럼 자전거도로가 잘 조성된 하천이나 강이 있고 희망 거리와 연결 가능하면 반드시 후보 하나 이상을 해당 수변 자전거길로 구성하고 제목을 '[수변 추천] 실제하천명 코스' 형식으로 시작하세요. 수변 후보의 경유 좌표는 추측한 중심점이 아니라 해당 하천 자전거길 위의 접근 가능한 좌표여야 합니다. 각 후보의 경유지는 대한민국 범위의 WGS84 좌표여야 합니다. 설명은 한 문장으로 작성하세요.`;
-    let candidates: AiCandidate[] = [];
-    try {
-      const aiResponse = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${openRouterKey.value()}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://cmjun0725.github.io/ridemate-pwa/",
-            "X-Title": "RideMate",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            temperature: 0.35,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "반드시 요청된 JSON 스키마만 반환하세요. 거리와 고도는 추측하지 말고 후보 지점만 제안하세요.",
-              },
-              { role: "user", content: prompt },
-            ],
-            response_format: {
-              type: "json_schema",
-              json_schema: {
-                name: "cycling_candidates",
-                strict: true,
-                schema: {
-                  type: "object",
-                  properties: {
-                    candidates: {
-                      type: "array",
-                      minItems: 3,
-                      maxItems: 3,
-                      items: {
-                        type: "object",
-                        properties: {
-                          title: { type: "string" },
-                          summary: { type: "string" },
-                          waypoints: {
-                            type: "array",
-                            minItems: 1,
-                            maxItems: 2,
-                            items: {
-                              type: "object",
-                              properties: {
-                                lat: { type: "number" },
-                                lng: { type: "number" },
-                              },
-                              required: ["lat", "lng"],
-                              additionalProperties: false,
-                            },
-                          },
-                        },
-                        required: ["title", "summary", "waypoints"],
-                        additionalProperties: false,
-                      },
-                    },
-                  },
-                  required: ["candidates"],
-                  additionalProperties: false,
-                },
-              },
-            },
-            max_tokens: 900,
-          }),
-        },
-      );
-      if (!aiResponse.ok) throw new Error(`OpenRouter ${aiResponse.status}`);
-      const body = (await aiResponse.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const parsed = JSON.parse(
-        body.choices?.[0]?.message?.content ?? "{}",
-      ) as { candidates?: AiCandidate[] };
-      candidates = (parsed.candidates ?? [])
-        .filter((candidate) => candidate.waypoints?.every(isPoint))
-        .slice(0, 3);
-    } catch (error) {
-      console.warn("AI candidate generation fallback", error);
-    }
-    if (candidates.length < 3)
-      candidates = fallbackCandidates(start!, distanceKm, tripType!);
+    const seeds = buildRouteSeeds(start!, distanceKm, tripType!);
+    const targetClimbRate = { low: 4, medium: 10, high: 19 }[uphill!];
     const results = await Promise.allSettled(
-      candidates.map(async (candidate, index) => {
+      seeds.map(async (seed, index) => {
         const routePoints = [
           start!,
-          ...candidate.waypoints,
+          ...seed.waypoints,
           ...(tripType === "round" ? [start!] : []),
         ];
         let verified = await callOrs(routePoints);
         const initialDifference = Math.abs(verified.distanceKm - distanceKm);
-        if (initialDifference > Math.max(3, distanceKm * 0.25) && candidate.waypoints.length) {
+        if (initialDifference > Math.max(3, distanceKm * 0.25) && seed.waypoints.length) {
           const scale = Math.min(2, Math.max(0.5, distanceKm / Math.max(verified.distanceKm, 1)));
-          const adjusted = candidate.waypoints.map(point => ({ lat: start!.lat + (point.lat - start!.lat) * scale, lng: start!.lng + (point.lng - start!.lng) * scale })).filter(isPoint);
-          if (adjusted.length === candidate.waypoints.length) { try { const retry = await callOrs([start!, ...adjusted, ...(tripType === "round" ? [start!] : [])]); if (Math.abs(retry.distanceKm - distanceKm) < initialDifference) verified = retry; } catch { /* 원본 검증 경로를 유지 */ } }
+          const adjusted = seed.waypoints.map(point => ({ lat: start!.lat + (point.lat - start!.lat) * scale, lng: start!.lng + (point.lng - start!.lng) * scale })).filter(isPoint);
+          if (adjusted.length === seed.waypoints.length) { try { const retry = await callOrs([start!, ...adjusted, ...(tripType === "round" ? [start!] : [])]); if (Math.abs(retry.distanceKm - distanceKm) < initialDifference) verified = retry; } catch { /* 원본 검증 경로를 유지 */ } }
         }
         const climbRate =
           verified.elevationM / Math.max(verified.distanceKm, 1);
-        const recommended = candidate.title.startsWith("[수변 추천]");
-        const cleanTitle = candidate.title.replace(/^\[수변 추천\]\s*/, "");
-        const waterwayName = recommended
-          ? (cleanTitle.match(/^([^\s]+(?:천|강|호|수변))/)?.[1] ??
-            cleanTitle.split(/\s+/)[0])
-          : undefined;
+        const distanceDifferenceKm = Math.abs(verified.distanceKm - distanceKm);
+        const score = distanceDifferenceKm / Math.max(distanceKm, 1) * 70 +
+          Math.abs(climbRate - targetClimbRate) / Math.max(targetClimbRate, 1) * 30;
+        const intensity = climbRate < 7 ? "완만한" : climbRate < 15 ? "균형" : "업힐";
         return {
           id: `candidate-${index + 1}`,
-          title: cleanTitle,
-          summary: candidate.summary,
+          title: `${seed.direction} ${intensity} 코스`,
+          summary: `자전거 가능 도로망과 실제 고도를 분석한 ${seed.direction} 후보입니다.`,
           startName,
-          recommended,
-          waterwayName,
           ...verified,
           climbRate: Math.round(climbRate * 10) / 10,
           distanceDifferenceKm:
-            Math.round(Math.abs(verified.distanceKm - distanceKm) * 10) / 10,
+            Math.round(distanceDifferenceKm * 10) / 10,
+          score: Math.round(score * 10) / 10,
           verified: true,
         };
       }),
@@ -353,12 +346,9 @@ export const recommendCourses = onCall(
       );
     return {
       candidates: fulfilled
-        .sort(
-          (a, b) =>
-            Number(b.recommended) - Number(a.recommended) ||
-            Number(a.distanceDifferenceKm) - Number(b.distanceDifferenceKm),
-        )
-        .slice(0, 3),
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 3)
+        .map((candidate, index) => ({ ...candidate, recommended: index === 0 })),
     };
   },
 );
@@ -580,6 +570,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
     description?: string;
     coordinates?: Point[];
     elevationProfile?: Array<{ distanceKm: number; elevationM: number }>;
+    climbSegments?: ClimbSegment[];
     stops?: Array<{ id?: string; name?: string; kind?: string; coordinate?: Point; selected?: boolean }>;
   };
   if (
@@ -608,6 +599,14 @@ export const createRidePlan = onCall({ region }, async (request) => {
     elevationM: Math.max(0, Number(data.elevationM ?? 0)),
     coordinates: (data.coordinates ?? []).filter(isPoint).slice(0, 3000),
     elevationProfile: (data.elevationProfile ?? []).slice(0, 120),
+    climbSegments: (data.climbSegments ?? []).slice(0, 12).map((segment, index) => ({
+      id: String(segment.id ?? `climb-${index + 1}`).slice(0, 80),
+      startKm: Math.max(0, Number(segment.startKm ?? 0)),
+      endKm: Math.max(0, Number(segment.endKm ?? 0)),
+      gainM: Math.max(0, Number(segment.gainM ?? 0)),
+      avgGradient: Math.max(0, Number(segment.avgGradient ?? 0)),
+      coordinates: (segment.coordinates ?? []).filter(isPoint).slice(0, 100),
+    })),
     stops: (data.stops ?? []).filter(stop=>stop.name && isPoint(stop.coordinate)).slice(0,30).map(stop=>({id:String(stop.id??'').slice(0,120),name:String(stop.name).slice(0,100),kind:String(stop.kind??'휴식').slice(0,20),coordinate:stop.coordinate,selected:stop.selected===true})),
     visibility: data.purpose === "solo" ? "private" : "public",
     createdBy: userId,
@@ -656,20 +655,32 @@ export const createRidePlan = onCall({ region }, async (request) => {
 
 export const listMyRidePlans = onCall({ region }, async (request) => {
   requireAuth(request.auth?.uid);
-  const rows = await db
-    .collection("rides")
-    .where("hostId", "==", request.auth!.uid)
-    .orderBy("createdAt", "desc")
-    .limit(30)
+  const memberships = await db
+    .collection("rideMembers")
+    .where("userId", "==", request.auth!.uid)
+    .limit(50)
     .get();
-  const courseIds = rows.docs.map((row) => row.data().courseId).filter(Boolean);
+  const rideRows = await Promise.all(
+    memberships.docs.map((member) =>
+      db.collection("rides").doc(String(member.data().rideId)).get(),
+    ),
+  );
+  const rows = rideRows
+    .filter((row) => row.exists)
+    .sort(
+      (a, b) =>
+        (b.data()?.createdAt?.toMillis?.() ?? 0) -
+        (a.data()?.createdAt?.toMillis?.() ?? 0),
+    )
+    .slice(0, 30);
+  const courseIds = rows.map((row) => row.data()!.courseId).filter(Boolean);
   const courseRows = await Promise.all(
     courseIds.map((id) => db.collection("courses").doc(id).get()),
   );
   const courses = new Map(courseRows.map((row) => [row.id, row.data()]));
   return {
-    plans: rows.docs.map((row) => {
-      const ride = row.data();
+    plans: rows.map((row) => {
+      const ride = row.data()!;
       const course = courses.get(ride.courseId) ?? {};
       return {
         id: row.id,
@@ -798,6 +809,54 @@ export const leaveRide = onCall({ region }, async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
     });
   });
+  return { ok: true };
+});
+
+export const startRide = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const rideId = String((request.data as { rideId?: string }).rideId ?? "");
+  const rideRef = db.collection("rides").doc(rideId);
+  await db.runTransaction(async (tx) => {
+    const ride = await tx.get(rideRef);
+    if (!ride.exists) throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
+    const data = ride.data()!;
+    if (data.hostId !== request.auth!.uid)
+      throw new HttpsError("permission-denied", "방장만 라이딩을 시작할 수 있습니다.");
+    if (!["모집중", "마감", "계획"].includes(String(data.status)))
+      throw new HttpsError("failed-precondition", "시작할 수 있는 상태가 아닙니다.");
+    tx.update(rideRef, {
+      status: "진행중",
+      startedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true };
+});
+
+export const finishRide = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const rideId = String((request.data as { rideId?: string }).rideId ?? "");
+  const rideRef = db.collection("rides").doc(rideId);
+  await db.runTransaction(async (tx) => {
+    const ride = await tx.get(rideRef);
+    if (!ride.exists) throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
+    const data = ride.data()!;
+    if (data.hostId !== request.auth!.uid)
+      throw new HttpsError("permission-denied", "방장만 라이딩을 종료할 수 있습니다.");
+    if (data.status !== "진행중")
+      throw new HttpsError("failed-precondition", "진행 중인 라이딩이 아닙니다.");
+    tx.update(rideRef, {
+      status: "완료",
+      endsAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  if ((await db.collection("rides").doc(rideId).get()).data()?.purpose === "group") {
+    await db.collection("rides").doc(rideId).collection("voteEvents").add({
+      openedAt: FieldValue.serverTimestamp(),
+      closesAt: new Date(Date.now() + 86400000),
+    });
+  }
   return { ok: true };
 });
 

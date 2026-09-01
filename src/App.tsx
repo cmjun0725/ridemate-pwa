@@ -1907,7 +1907,7 @@ export default function App() {
   ) : tab === "profile" ? (
     <LoginPanel />
   ) : (
-    <section className="page">
+    <section className="page home-page">
       <div className="hero">
         <span>함께 달리는 더 안전한 라이딩</span>
         <h1>

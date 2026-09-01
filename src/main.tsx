@@ -8,6 +8,12 @@ if ("serviceWorker" in navigator)
   window.addEventListener("load", () =>
     navigator.serviceWorker
       .register(`${import.meta.env.BASE_URL}sw.js`)
+      .then(() => {
+        if ("Notification" in window && Notification.permission === "granted")
+          void import("./push").then(({ listenForForegroundMessages }) =>
+            listenForForegroundMessages(),
+          );
+      })
       .catch(() => undefined),
   );
 createRoot(document.getElementById("root")!).render(

@@ -1,4 +1,4 @@
-const CACHE = "ridemate-shell-v4";
+const CACHE = "ridemate-shell-v5";
 const ASSETS = [
   "./",
   "./offline.html",
@@ -66,6 +66,48 @@ self.addEventListener("fetch", (event) => {
         return response;
       });
       return cached || network;
+    }),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload = {};
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { notification: { body: event.data.text() } };
+  }
+  const notification = payload.notification ?? {};
+  const data = payload.data ?? {};
+  event.waitUntil(
+    self.registration.showNotification(
+      notification.title ?? "RideMate 알림",
+      {
+        body: notification.body ?? "라이딩 업데이트를 확인해 주세요.",
+        icon: "./icon-192.png",
+        badge: "./icon-192.png",
+        tag: data.rideId ? `ride-${data.rideId}` : "ridemate-update",
+        renotify: Boolean(data.rideId),
+        data: {
+          url: data.url ?? (data.rideId ? "./?view=my" : "./"),
+        },
+      },
+    ),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url ?? "./", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
+      const sameOrigin = windows.find((client) => new URL(client.url).origin === self.location.origin);
+      if (sameOrigin) {
+        await sameOrigin.navigate(targetUrl);
+        return sameOrigin.focus();
+      }
+      return self.clients.openWindow(targetUrl);
     }),
   );
 });

@@ -523,3 +523,111 @@ select {
     border-right: 1px solid #dbe4de;
   }
 }
+
+@media (min-width: 900px) {
+  :root { background: #f3f7f4; }
+  .app-shell {
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    padding: 76px 0 48px;
+    box-shadow: none;
+    border: 0;
+  }
+  header {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 10;
+    height: 76px;
+    padding: 0 max(32px, calc((100vw - 1280px) / 2));
+    background: #ffffffed;
+    border-bottom: 1px solid #dce6e0;
+    backdrop-filter: blur(16px);
+  }
+  .logo { font-size: 18px; }
+  .logo span { font-size: 9px; }
+  .bell { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: #fff3ef; }
+  nav {
+    position: fixed;
+    inset: 0 auto auto 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    width: auto;
+    height: 76px;
+    padding: 0;
+    gap: 4px;
+    background: transparent;
+    border: 0;
+    align-items: center;
+  }
+  nav button {
+    min-width: auto;
+    height: 44px;
+    padding: 0 15px;
+    border-radius: 11px;
+    flex-direction: row;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 650;
+  }
+  nav button svg { width: 18px; }
+  nav button.current { background: #e5f3ed; }
+  nav button:nth-child(3) {
+    width: auto;
+    height: 44px;
+    margin: 0;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 11px;
+  }
+  .page { width: min(100%, 1280px); margin: 0 auto; padding: 32px; }
+  .page h1 { font-size: 36px; }
+  .home-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, .55fr);
+    column-gap: 28px;
+    align-items: start;
+  }
+  .home-page .hero { grid-row: 1 / span 3; min-height: 274px; margin: 0; padding: 38px; }
+  .home-page .hero h1 { font-size: 42px; }
+  .home-page .search { grid-column: 2; margin-top: 0; }
+  .home-page .filter-bar { grid-column: 2; }
+  .home-page .section-title { grid-column: 1 / -1; margin-top: 34px; }
+  .home-page .list { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .ride-card { min-height: 164px; padding: 20px; transition: transform .18s ease, box-shadow .18s ease; }
+  .ride-card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px #173d2c17; }
+  .map { height: 420px; border-radius: 22px; }
+  .detail { max-width: 1180px; }
+  .detail > .map { height: 500px; }
+  .detail .stat-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .detail .info { padding: 22px 18px; border: 1px solid #e0e8e3; border-radius: 15px; margin: 12px 0; background: #fff; }
+  .create-page {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    column-gap: 38px;
+    align-items: start;
+  }
+  .create-page > h1, .create-page > .sub { grid-column: 1 / -1; }
+  .create-page > .purpose-tabs { grid-column: 1; grid-row: 3; }
+  .create-page > .mode-cards { grid-column: 1; grid-row: 4; grid-template-columns: 1fr; }
+  .create-page > form, .create-page > .candidate-results { grid-column: 2; grid-row: 3 / span 5; }
+  .create-page > form { padding: 24px; border: 1px solid #dde7e1; border-radius: 20px; background: #fff; }
+  .candidate-results { grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); column-gap: 18px; }
+  .candidate-results .result-head { grid-column: 1 / -1; }
+  .candidate-results .map, .candidate-results .elevation-card, .candidate-results .poi-summary, .candidate-results .candidate-climbs { grid-column: 1; }
+  .candidate-results .candidate-list { grid-column: 2; grid-row: 2 / span 5; align-content: start; }
+  .candidate-results > .wide { grid-column: 2; align-self: end; }
+  .list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .profile, .login-panel { max-width: 760px; }
+  .admin-shell { max-width: 1280px; margin: 0 auto; }
+  .admin-stats { grid-template-columns: repeat(4, 1fr); }
+  .install-banner { position: fixed; top: 86px; right: 28px; width: 390px; margin: 0; }
+}
+
+@media (min-width: 900px) and (max-width: 1100px) {
+  nav button { padding: 0 9px; }
+  nav button span { display: none; }
+  .home-page { grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); }
+  .home-page .list, .list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-page { grid-template-columns: 290px minmax(0, 1fr); gap: 24px; }
+}

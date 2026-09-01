@@ -40,7 +40,7 @@ cd functions && npm run build
 1. Firebase 프로젝트에서 Authentication(이메일/비밀번호, Google), Firestore, Cloud Functions, Cloud Messaging을 활성화합니다.
 2. 카카오 개발자 앱을 만들고 GitHub Pages 주소를 플랫폼 도메인으로 등록합니다. JavaScript 키는 `VITE_KAKAO_MAP_KEY`에, REST 키는 서버 비밀 환경 변수에 저장합니다.
 3. OpenRouteService 계정을 만들고 자전거 프로필용 API 키를 Cloud Functions 비밀 환경 변수에 저장합니다. 브라우저에 키를 노출하지 않습니다.
-4. Cloud Messaging의 웹 푸시 인증서 공개 키를 GitHub Actions secret `VITE_FIREBASE_VAPID_KEY`로 등록합니다.
+4. Cloud Messaging의 웹 푸시 인증서 공개 키를 GitHub Actions secret `VITE_FIREBASE_VAPID_KEY`로 등록합니다. 상세 절차는 [FCM VAPID 설정 가이드](docs/FCM_SETUP.md)를 따릅니다.
 5. 카카오 OAuth는 카카오 REST 키를 Secret Manager에 추가하고 서버가 카카오 토큰을 검증한 뒤 Firebase Custom Token을 발급하도록 설정합니다. 현재 배포는 이메일·Google 로그인까지 제공합니다.
 6. 휴대폰·본인인증은 PASS/KCB 같은 국내 본인확인기관 계약 후 `identityStatus` 갱신 웹훅을 연결해야 합니다. 현재 UI는 미인증 상태를 명확히 표시합니다.
 7. 이용약관·개인정보·위치서비스 안내의 사업자 정보와 위치정보관리책임자를 정식 출시 전에 법률 검토 후 확정합니다.

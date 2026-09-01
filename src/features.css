@@ -170,12 +170,19 @@ legend {
 .date-time-fields {
   border: 1px solid #dfe8e3;
   border-radius: 14px;
-  padding: 13px;
+  padding: 16px;
   background: #f7faf8;
+  min-width: 0;
+  overflow: hidden;
 }
-.date-time-fields legend {
-  padding: 0 5px;
-  margin-left: -5px;
+.date-time-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  color: #263a33;
+  font-size: 13px;
+  font-weight: 700;
 }
 .date-time-grid {
   display: grid;
@@ -194,6 +201,7 @@ legend {
   background: #fff;
   width: 100%;
   min-width: 0;
+  color: #283630;
 }
 .date-time-grid input[type="date"] {
   display: block;
@@ -211,6 +219,7 @@ legend {
   margin-top: 8px;
   color: #78857f;
   font-size: 10px;
+  line-height: 1.5;
 }
 @media (max-width: 430px) {
   .date-time-grid {
@@ -614,3 +623,112 @@ legend {
 @media(max-width:620px){.facility-groups{grid-template-columns:1fr}.facility-groups.compact{grid-template-columns:repeat(3,minmax(150px,1fr));overflow:auto;padding-bottom:3px}.facility-marker{max-width:126px}.facility-marker:hover .facility-marker-name,.facility-marker:focus .facility-marker-name,.facility-marker.expanded .facility-marker-name{max-width:88px}.facility-legend i{font-size:0}.facility-legend i:first-letter{font-size:11px}}
 @media(min-width:900px){.admin-app-shell{padding:28px 32px 56px}.admin-head{position:static;inset:auto;transform:none;width:auto;max-width:none;height:auto;margin:0;background:transparent;border:0;backdrop-filter:none;z-index:auto;justify-content:space-between}.admin-tabs{position:static;inset:auto;transform:none;width:100%;height:auto;margin:0;padding:4px;gap:4px;z-index:auto}.admin-section{width:100%}.admin-list{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-list.logs{grid-template-columns:1fr}.ops-list{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (min-width:900px) and (prefers-color-scheme:dark){header{background:#0d1d18ed;border-color:#294239}nav{background:transparent}.detail .info,.create-page>form{background:#142720;border-color:#294239}.home-page .hero{background:#0d5f4c}.ride-card:hover{box-shadow:0 10px 28px #0004}}
+
+/* Complete dark-scheme overrides. Keep every light surface and its text paired. */
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
+  .create-page > form,
+  .date-time-fields,
+  .poi-summary,
+  .facility-group,
+  .admin-action-modal {
+    background: #10251f;
+    color: #edf6f2;
+    border-color: #2b463c;
+  }
+  .create-page > form .notice,
+  .route-method,
+  .segmented {
+    background: #172f27;
+    color: #edf6f2;
+  }
+  .notice p,
+  .route-method p,
+  .purpose-tabs small,
+  .mode-cards button small,
+  .candidate-card p,
+  .candidate-card small,
+  .field-help,
+  .optional {
+    color: #adbbb6;
+  }
+  .date-time-title,
+  .date-time-grid label,
+  legend {
+    color: #dce9e4;
+  }
+  .date-time-grid input,
+  .date-time-grid select,
+  .date-time-grid input[type="date"] {
+    background: #142d25;
+    color: #edf6f2;
+    border-color: #466056;
+    color-scheme: dark;
+  }
+  input::placeholder,
+  textarea::placeholder { color: #91a29b; opacity: 1; }
+  .purpose-tabs button.active,
+  .mode-cards button.active,
+  .candidate-card.selected {
+    background: #174334;
+    color: #f1faf6;
+    border-color: #55b997;
+  }
+  .purpose-tabs button.active small,
+  .mode-cards button.active small,
+  .candidate-card.selected p,
+  .candidate-card.selected small { color: #c1d7cf; }
+  .segmented button { color: #b8c8c2; }
+  .segmented .active {
+    background: #2b5143;
+    color: #ffffff;
+    box-shadow: none;
+  }
+  nav button.current,
+  nav button:nth-child(3).current {
+    background: #1e5b46;
+    color: #ffffff;
+    border-color: #3f8b70;
+  }
+  .bell { background: #41261f; color: #ff9f87; }
+  .verified { background: #174d3a; color: #a5e8ce; }
+  .verified.recommended { background: #4d3b13; color: #ffe099; border-color: #81662a; }
+
+  .admin-app-shell,
+  .admin-shell { background: #0d1d18; color: #edf6f2; }
+  .admin-head { background: transparent; color: #edf6f2; }
+  .admin-head h1 { color: #edf6f2; }
+  .admin-head span { color: #72d4b2; }
+  .admin-head > div:last-child button,
+  .admin-list button {
+    background: #193128;
+    color: #e9f5f0;
+    border-color: #355046;
+  }
+  .admin-tabs { background: #172c24; }
+  .admin-tabs button { color: #afbeb8; }
+  .admin-tabs button.active {
+    background: #266b55;
+    color: #ffffff;
+    box-shadow: none;
+  }
+  .admin-stats article,
+  .ops-list p,
+  .admin-list article {
+    background: #142720;
+    color: #edf6f2;
+    border-color: #294239;
+  }
+  .admin-stats b,
+  .ops-list b,
+  .admin-list b,
+  .admin-section h2 { color: #f4fbf8; }
+  .admin-stats span,
+  .ops-list span,
+  .admin-list span { color: #b2c0bb; }
+  .admin-list small,
+  .admin-loading,
+  .admin-empty { color: #91a39c; }
+  .admin-error { background: #461f19; color: #ffc5ba; }
+  .admin-action-modal p { color: #b6c6c0; }
+}

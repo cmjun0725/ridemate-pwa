@@ -922,10 +922,14 @@ function RideDetail({
 function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
   const hours = Array.from({ length: 12 }, (_, index) => index + 1);
   return (
-    <fieldset className="date-time-fields">
-      <legend>
+    <div
+      className="date-time-fields"
+      role="group"
+      aria-label={optional ? "출발 날짜와 시간, 선택 사항" : "출발 날짜와 시간"}
+    >
+      <div className="date-time-title">
         출발 날짜와 시간 {optional && <span className="optional">선택</span>}
-      </legend>
+      </div>
       <div className="date-time-grid">
         <label className="date-field">
           날짜
@@ -965,7 +969,7 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
           ? "일정을 정하지 않았다면 비워두어도 됩니다."
           : "예: 9월 5일 · 오전 8시 30분"}
       </small>
-    </fieldset>
+    </div>
   );
 }
 

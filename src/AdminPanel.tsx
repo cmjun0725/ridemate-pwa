@@ -70,7 +70,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
   };
   return (
     <section className="admin-shell">
-      <header className="admin-head">
+      <div className="admin-head" role="banner">
         <div>
           <span>
             <ShieldCheck size={15} /> 관리자 전용
@@ -83,8 +83,8 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
           </button>
           <button onClick={onClose}>앱으로</button>
         </div>
-      </header>
-      <nav className="admin-tabs">
+      </div>
+      <div className="admin-tabs" role="tablist" aria-label="관리자 메뉴">
         {(
           [
             ["overview", "요약"],
@@ -96,13 +96,15 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
         ).map(([id, label]) => (
           <button
             key={id}
+            role="tab"
+            aria-selected={view === id}
             className={view === id ? "active" : ""}
             onClick={() => setView(id)}
           >
             {label}
           </button>
         ))}
-      </nav>
+      </div>
       {error && <p className="admin-error">{error}</p>}
       {loading ? (
         <div className="admin-loading">운영 데이터를 불러오는 중…</div>

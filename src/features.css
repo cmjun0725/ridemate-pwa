@@ -643,6 +643,19 @@ legend {
     color: #edf6f2;
     border-color: #2b463c;
   }
+  .filter-bar select,
+  .quick-filters button,
+  .detail-actions button {
+    background: #142720;
+    color: #dce9e4;
+    border-color: #294239;
+  }
+  .quick-filters button.active { background: #1e5b46; color: #fff; border-color: #55b997; }
+  .quick-filters button.reset { color: #ffb3a3; }
+  .filter-bar label,
+  .section-title small,
+  .ride-estimate { color: #aebdb7; }
+  .ride-estimate b { color: #72d4b2; }
   .create-page > form .notice,
   .route-method,
   .segmented {

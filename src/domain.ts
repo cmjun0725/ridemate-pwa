@@ -20,15 +20,26 @@ export function filterPublicRides(
   query: string,
   maxDistance: number,
   maxPace: number,
+  options: { onlyAvailable?: boolean; withinDays?: number; upcomingOnly?: boolean; now?: Date } = {},
 ) {
   const normalized = query.trim().toLowerCase();
+  const now = options.now ?? new Date();
+  const deadline = options.withinDays
+    ? now.getTime() + options.withinDays * 86400000
+    : Number.POSITIVE_INFINITY;
   return rides.filter(
-    (ride) =>
-      `${ride.title} ${ride.course.startName} ${ride.course.endName}`
+    (ride) => {
+      const startsAt = new Date(ride.startsAt).getTime();
+      const memberCount = ride.memberCount ?? ride.members?.length ?? 1;
+      return `${ride.title} ${ride.course.startName} ${ride.course.endName}`
         .toLowerCase()
         .includes(normalized) &&
       ride.course.distanceKm <= maxDistance &&
-      ride.paceKmh <= maxPace,
+      ride.paceKmh <= maxPace &&
+      (!options.onlyAvailable || (ride.status === "모집중" && memberCount < ride.capacity)) &&
+      (!options.upcomingOnly || startsAt >= now.getTime()) &&
+      (!options.withinDays || (startsAt >= now.getTime() && startsAt <= deadline));
+    },
   );
 }
 

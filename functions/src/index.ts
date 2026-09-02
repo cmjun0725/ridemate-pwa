@@ -425,6 +425,9 @@ export const joinRide = onCall({ region }, async (request) => {
     if (blockedByUser.exists || blockedByHost.exists) throw new HttpsError("permission-denied", "차단 관계가 있는 사용자와는 함께 라이딩할 수 없습니다.");
     if (data.status !== "모집중" || data.memberCount >= data.capacity)
       throw new HttpsError("failed-precondition", "모집이 마감되었습니다.");
+    const startsAt = data.startsAt?.toDate?.() as Date | undefined;
+    if (!startsAt || startsAt.getTime() <= Date.now())
+      throw new HttpsError("failed-precondition", "이미 출발 시간이 지난 라이딩입니다.");
     tx.set(memberRef, {
       rideId,
       userId: request.auth!.uid,
@@ -608,6 +611,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
       "라이딩 계획 정보를 확인해 주세요.",
     );
   if (data.purpose === "group" && (!data.startsAt || !Number.isFinite(new Date(data.startsAt).getTime()))) throw new HttpsError("invalid-argument", "함께 라이딩은 출발 날짜와 시간이 필요합니다.");
+  if (data.purpose === "group" && new Date(data.startsAt!).getTime() <= Date.now()) throw new HttpsError("invalid-argument", "출발 날짜와 시간은 현재 이후로 설정해 주세요.");
   if (!Number.isFinite(data.paceKmh) || Number(data.paceKmh) < 5 || Number(data.paceKmh) > 60) throw new HttpsError("invalid-argument", "목표 평속은 5~60km/h로 입력해 주세요.");
   if (hasBlockedRideContent(data.title, data.description))
     throw new HttpsError(
@@ -786,7 +790,7 @@ export const listPublicRides = onCall({ region }, async (request) => {
   const blockedIds = new Set<string>();
   if (request.auth?.uid) { const [mine, byOthers] = await Promise.all([db.collection("userBlocks").where("ownerId", "==", request.auth.uid).get(), db.collection("userBlocks").where("targetUserId", "==", request.auth.uid).get()]); mine.docs.forEach(row=>blockedIds.add(String(row.data().targetUserId))); byOthers.docs.forEach(row=>blockedIds.add(String(row.data().ownerId))); }
   const visible = rows.docs
-    .filter((row) => ["모집중", "마감"].includes(String(row.data().status)) && !blockedIds.has(String(row.data().hostId)) && !hasBlockedRideContent(String(row.data().title ?? ""), String(row.data().description ?? "")))
+    .filter((row) => ["모집중", "마감"].includes(String(row.data().status)) && (row.data().startsAt?.toMillis?.() ?? 0) > Date.now() && !blockedIds.has(String(row.data().hostId)) && !hasBlockedRideContent(String(row.data().title ?? ""), String(row.data().description ?? "")))
     .sort(
       (a, b) =>
         (a.data().startsAt?.toMillis?.() ?? 0) -

@@ -13,6 +13,7 @@ import {
   Plus,
   Route,
   Search,
+  Share2,
   ShieldCheck,
   Star,
   Users,
@@ -73,6 +74,12 @@ const fmt = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+const estimatedMinutes = (distanceKm: number, paceKmh: number) =>
+  Math.max(1, Math.round((distanceKm / Math.max(paceKmh, 1)) * 60));
+const formatDuration = (minutes: number) =>
+  minutes >= 60
+    ? `${Math.floor(minutes / 60)}시간${minutes % 60 ? ` ${minutes % 60}분` : ""}`
+    : `${minutes}분`;
 const routeColors = ["#087458", "#ef7d5f", "#4e65c5"];
 const emptyStops: Stop[] = [];
 const emptyCoordinates: Coordinate[] = [];
@@ -516,6 +523,7 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
 
 function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
   const memberCount = ride.memberCount ?? ride.members?.length ?? 1;
+  const remaining = Math.max(0, ride.capacity - memberCount);
   return (
     <button
       className="ride-card"
@@ -537,7 +545,9 @@ function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
           {memberCount}/{ride.capacity}
         </span>
         <span>{ride.paceKmh}km/h</span>
-        <span className="open">{ride.status}</span>
+        <span className={`open ${remaining === 0 ? "full" : ""}`}>
+          {remaining > 0 ? `${remaining}자리 남음` : "모집 마감"}
+        </span>
         <ChevronRight size={18} aria-hidden="true" />
       </div>
     </button>
@@ -750,7 +760,28 @@ function RideDetail({
   const targetId = ride.hostId ?? ride.host?.id;
   const isHost = auth?.currentUser?.uid === ride.hostId;
   const members = ride.members ?? [];
-  const stops = ride.course.stops ?? [];
+  const stops = detailStops;
+  const durationMinutes = estimatedMinutes(ride.course.distanceKm, ride.paceKmh);
+  const shareRide = async () => {
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.searchParams.set("ride", ride.id);
+    const shareData = {
+      title: `${ride.title} | 라이드메이트`,
+      text: `${fmt(ride.startsAt)} · ${ride.course.distanceKm}km · ${ride.paceKmh}km/h`,
+      url: url.toString(),
+    };
+    try {
+      if (navigator.share) await navigator.share(shareData);
+      else {
+        await navigator.clipboard.writeText(shareData.url);
+        setMessage("라이딩 링크를 복사했습니다.");
+      }
+    } catch (error) {
+      if ((error as DOMException)?.name !== "AbortError")
+        setMessage("공유 링크를 만들지 못했습니다. 다시 시도해 주세요.");
+    }
+  };
   const changeRideStatus = async (action: "start" | "finish") => {
     setBusy(true);
     setMessage("");
@@ -810,6 +841,9 @@ function RideDetail({
         </p>
       )}
       <div className="detail-actions">
+        <button onClick={() => void shareRide()}>
+          <Share2 /> 공유
+        </button>
         <button
           aria-pressed={favorite}
           onClick={async () => {
@@ -917,7 +951,15 @@ function RideDetail({
           <Clock3 aria-hidden="true" />
           {ride.paceKmh} km/h<small>목표 평속</small>
         </span>
+        <span>
+          <Users aria-hidden="true" />
+          {Math.max(0, ride.capacity - (ride.memberCount ?? members.length))}명<small>남은 자리</small>
+        </span>
       </dl>
+      <p className="ride-estimate">
+        예상 주행시간 <b>{formatDuration(durationMinutes)}</b>
+        <span>휴식·교통 신호 제외</span>
+      </p>
       {(ride.course.elevationProfile?.length ?? 0) > 1 && (
         <ElevationChart points={ride.course.elevationProfile ?? []} />
       )}
@@ -1080,9 +1122,15 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
   useEffect(() => setEnabled(!optional), [optional]);
   const hours = Array.from({ length: 12 }, (_, index) => index + 1);
   const now = new Date();
-  const localToday = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+  const nextSlot = new Date(now.getTime() + 10 * 60000);
+  nextSlot.setMinutes(Math.ceil(nextSlot.getMinutes() / 10) * 10, 0, 0);
+  const localToday = new Date(nextSlot.getTime() - nextSlot.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 10);
+  const defaultHour24 = nextSlot.getHours();
+  const defaultPeriod = defaultHour24 >= 12 ? "PM" : "AM";
+  const defaultHour12 = defaultHour24 % 12 || 12;
+  const defaultMinute = String(nextSlot.getMinutes()).padStart(2, "0");
   return (
     <div
       className="date-time-fields"
@@ -1108,18 +1156,18 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
       {enabled ? <div className="date-time-grid">
         <label className="date-field">
           날짜
-          <input required name="rideDate" type="date" defaultValue={localToday} />
+          <input required name="rideDate" type="date" min={localToday} defaultValue={localToday} />
         </label>
         <label>
           오전·오후
-          <select required name="ridePeriod" defaultValue="AM">
+          <select required name="ridePeriod" defaultValue={defaultPeriod}>
             <option value="AM">오전</option>
             <option value="PM">오후</option>
           </select>
         </label>
         <label>
           시
-          <select required name="rideHour" defaultValue="8">
+          <select required name="rideHour" defaultValue={String(defaultHour12)}>
             {hours.map((hour) => (
               <option key={hour} value={hour}>
                 {hour}시
@@ -1129,7 +1177,7 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
         </label>
         <label>
           분
-          <select required name="rideMinute" defaultValue="00">
+          <select required name="rideMinute" defaultValue={defaultMinute}>
             <option value="00">00분</option>
             <option value="10">10분</option>
             <option value="20">20분</option>
@@ -2277,7 +2325,7 @@ function SavedGroupRide({ plan, onBack }: { plan: SavedPlan; onBack: () => void 
   );
 }
 
-function MyRides({ onLogin }: { onLogin: () => void }) {
+function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => void }) {
   const [plans, setPlans] = useState<SavedPlan[]>(readPlans);
   const [selected, setSelected] = useState<SavedPlan | null>(null);
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
@@ -2336,11 +2384,12 @@ function MyRides({ onLogin }: { onLogin: () => void }) {
           </button>
         ))}
         {!loading && !loadError && !plans.length && (
-          <p className="empty">
-            아직 저장한 라이딩이 없습니다.
-            <br />
-            만들기에서 첫 계획을 세워보세요.
-          </p>
+          <div className="empty">
+            <p>아직 저장한 라이딩이 없습니다.</p>
+            <button className="secondary wide" onClick={onCreate}>
+              <Plus size={16} aria-hidden="true" /> 첫 라이딩 만들기
+            </button>
+          </div>
         )}
       </div>
     </section>
@@ -2369,8 +2418,11 @@ export default function App() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedError, setFeedError] = useState("");
+  const [feedVersion, setFeedVersion] = useState(0);
   const [maxDistance, setMaxDistance] = useState(200);
   const [maxPace, setMaxPace] = useState(60);
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [withinWeek, setWithinWeek] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(
     null,
   );
@@ -2383,6 +2435,8 @@ export default function App() {
     [],
   );
   useEffect(() => {
+    setFeedLoading(true);
+    setFeedError("");
     try {
       const cached = JSON.parse(
         localStorage.getItem("ridemate-public-feed") ?? "[]",
@@ -2402,6 +2456,13 @@ export default function App() {
       .catch(() => setFeedError("새 목록을 불러오지 못해 저장된 최근 라이딩을 표시합니다."))
       .finally(() => setFeedLoading(false));
     void trackProductEvent("app_open").catch(() => undefined);
+  }, [feedVersion]);
+  useEffect(() => {
+    const rideId = new URLSearchParams(window.location.search).get("ride");
+    if (!rideId) return;
+    void getRideDetails(rideId)
+      .then(setSelected)
+      .catch(() => setFeedError("공유된 라이딩을 찾을 수 없거나 모집이 종료되었습니다."));
   }, []);
   useEffect(() => {
     const handler = (event: Event) => {
@@ -2412,9 +2473,21 @@ export default function App() {
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
   const filtered = useMemo(
-    () => filterPublicRides(rides, debouncedQuery, maxDistance, maxPace),
-    [rides, debouncedQuery, maxDistance, maxPace],
+    () => filterPublicRides(rides, debouncedQuery, maxDistance, maxPace, {
+      onlyAvailable,
+      upcomingOnly: true,
+      withinDays: withinWeek ? 7 : undefined,
+    }),
+    [rides, debouncedQuery, maxDistance, maxPace, onlyAvailable, withinWeek],
   );
+  const hasActiveFilters = Boolean(query || maxDistance < 200 || maxPace < 60 || onlyAvailable || withinWeek);
+  const resetFilters = () => {
+    setQuery("");
+    setMaxDistance(200);
+    setMaxPace(60);
+    setOnlyAvailable(false);
+    setWithinWeek(false);
+  };
   const prevTab = useRef(tab);
   useEffect(() => {
     if (prevTab.current !== tab || selected) {
@@ -2452,11 +2525,14 @@ export default function App() {
       );
   };
   const content = selected ? (
-    <RideDetail ride={selected} onBack={() => setSelected(null)} />
+    <RideDetail ride={selected} onBack={() => {
+      setSelected(null);
+      window.history.replaceState({}, "", window.location.pathname);
+    }} />
   ) : tab === "create" ? (
     <CreateRide onCreated={() => setTab("my")} onLogin={() => setTab("profile")} />
   ) : tab === "my" ? (
-    <MyRides onLogin={() => setTab("profile")} />
+    <MyRides onLogin={() => setTab("profile")} onCreate={() => setTab("create")} />
   ) : tab === "profile" ? (
     <LoginPanel />
   ) : (
@@ -2513,9 +2589,33 @@ export default function App() {
           </select>
         </label>
       </div>
+      <div className="quick-filters" role="group" aria-label="빠른 필터">
+        <button
+          className={onlyAvailable ? "active" : ""}
+          aria-pressed={onlyAvailable}
+          onClick={() => setOnlyAvailable((value) => !value)}
+        >
+          자리 있음
+        </button>
+        <button
+          className={withinWeek ? "active" : ""}
+          aria-pressed={withinWeek}
+          onClick={() => setWithinWeek((value) => !value)}
+        >
+          7일 이내
+        </button>
+        {hasActiveFilters && <button className="reset" onClick={resetFilters}>초기화</button>}
+      </div>
       <div className="section-title">
-        <h2>{tab === "search" ? "검색 결과" : "지금 모집 중인 라이딩"}</h2>
-        <button onClick={() => setTab("search")}>전체 보기</button>
+        <div>
+          <h2>{tab === "search" ? "검색 결과" : "지금 모집 중인 라이딩"}</h2>
+          {!feedLoading && <small>{filtered.length}개의 라이딩</small>}
+        </div>
+        {tab === "search" ? (
+          <button onClick={() => setFeedVersion((value) => value + 1)}>새로고침</button>
+        ) : (
+          <button onClick={() => setTab("search")}>전체 보기</button>
+        )}
       </div>
       <div className="list">
         {feedLoading && (
@@ -2539,19 +2639,24 @@ export default function App() {
           <RideCard
             key={ride.id}
             ride={ride}
-            onOpen={() => setSelected(ride)}
+            onOpen={() => {
+              setSelected(ride);
+              const url = new URL(window.location.href);
+              url.search = "";
+              url.searchParams.set("ride", ride.id);
+              window.history.replaceState({}, "", url);
+            }}
           />
         ))}
         {!feedLoading && !filtered.length && (
           <div className="empty" role="status">
             <p>조건에 맞는 라이딩이 없습니다.</p>
-            <button
-              className="secondary wide"
-              style={{ marginTop: 12, maxWidth: 260, margin: "12px auto 0" }}
-              onClick={() => setTab("create")}
-            >
-              <Plus size={16} aria-hidden="true" /> 새 라이딩 만들기
-            </button>
+            <div className="empty-actions">
+              {hasActiveFilters && <button className="secondary" onClick={resetFilters}>검색 조건 초기화</button>}
+              <button className="primary" onClick={() => setTab("create")}>
+                <Plus size={16} aria-hidden="true" /> 새 라이딩 만들기
+              </button>
+            </div>
           </div>
         )}
       </div>

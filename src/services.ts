@@ -82,6 +82,14 @@ async function callable<Input, Output>(name: string, input: Input) {
 }
 export const createRidePlan = (input: RidePlanInput) =>
   callable<RidePlanInput, { id: string }>("createRidePlan", input);
+export const repairRideCourse = (input: {
+  rideId: string;
+  coordinates: Coordinate[];
+  distanceKm: number;
+  elevationM: number;
+  elevationProfile: ElevationPoint[];
+  climbSegments: ClimbSegment[];
+}) => callable<typeof input, { ok: boolean }>("repairRideCourse", input);
 export const listMyRidePlans = () =>
   callable<Record<string, never>, { plans: StoredRidePlan[] }>(
     "listMyRidePlans",

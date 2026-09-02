@@ -680,6 +680,46 @@ export const createRidePlan = onCall({ region }, async (request) => {
   return { id: rideRef.id };
 });
 
+export const repairRideCourse = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const data = request.data as {
+    rideId?: string;
+    coordinates?: Point[];
+    distanceKm?: number;
+    elevationM?: number;
+    elevationProfile?: Array<{ distanceKm: number; elevationM: number }>;
+    climbSegments?: ClimbSegment[];
+  };
+  const coordinates = (data.coordinates ?? []).filter(isPoint).slice(0, 3000);
+  if (!data.rideId || coordinates.length < 2)
+    throw new HttpsError("invalid-argument", "복구할 경로 좌표를 확인해 주세요.");
+  const ride = await db.collection("rides").doc(data.rideId).get();
+  if (!ride.exists) throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
+  if (ride.data()?.hostId !== request.auth!.uid)
+    throw new HttpsError("permission-denied", "방장만 저장된 경로를 복구할 수 있습니다.");
+  const courseId = String(ride.data()?.courseId ?? "");
+  if (!courseId) throw new HttpsError("failed-precondition", "코스 정보가 없습니다.");
+  await db.collection("courses").doc(courseId).set(
+    {
+      coordinates,
+      distanceKm: Math.max(0, Number(data.distanceKm ?? 0)),
+      elevationM: Math.max(0, Number(data.elevationM ?? 0)),
+      elevationProfile: (data.elevationProfile ?? []).slice(0, 120),
+      climbSegments: (data.climbSegments ?? []).slice(0, 12).map((segment, index) => ({
+        id: String(segment.id ?? `climb-${index + 1}`).slice(0, 80),
+        startKm: Math.max(0, Number(segment.startKm ?? 0)),
+        endKm: Math.max(0, Number(segment.endKm ?? 0)),
+        gainM: Math.max(0, Number(segment.gainM ?? 0)),
+        avgGradient: Math.max(0, Number(segment.avgGradient ?? 0)),
+        coordinates: (segment.coordinates ?? []).filter(isPoint).slice(0, 100),
+      })),
+      repairedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  return { ok: true };
+});
+
 export const listMyRidePlans = onCall({ region }, async (request) => {
   requireAuth(request.auth?.uid);
   const memberships = await db

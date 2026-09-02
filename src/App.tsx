@@ -47,6 +47,7 @@ import {
   listPublicRides,
   listRideMessages,
   reportUser,
+  repairRideCourse,
   requestCourseCandidates,
   requestManualRoute,
   saveRiderSettings,
@@ -166,6 +167,37 @@ const parseGpx = async (file?: File) => {
   };
 };
 
+const recoverStoredRoute = async (
+  startName: string,
+  endName: string,
+  distanceKm: number,
+) => {
+  const start = await geocodePlace(startName);
+  if (endName && endName !== startName) {
+    try {
+      const end = await geocodePlace(endName);
+      return await requestManualRoute(
+        { lat: start.lat, lng: start.lng },
+        { lat: end.lat, lng: end.lng },
+      );
+    } catch {
+      /* 예전 추천 코스는 도착지에 후보명이 저장돼 장소 검색이 불가능할 수 있습니다. */
+    }
+  }
+  const targetDistance = Math.min(200, Math.max(5, Number(distanceKm) || 20));
+  const candidates = await requestCourseCandidates({
+    start: { lat: start.lat, lng: start.lng },
+    startName,
+    distanceKm: targetDistance,
+    uphill: "medium",
+    tripType: "round",
+  });
+  const candidate = candidates[0];
+  if (!candidate?.coordinates?.length)
+    throw new Error("복구할 자전거 경로를 찾지 못했습니다.");
+  return candidate;
+};
+
 function RouteFallback({
   routes,
   selected,
@@ -232,12 +264,14 @@ function CourseMap({
   label = "코스 지도",
   stops = emptyStops,
   climbSegments = [],
+  missingRouteMessage = "이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.",
 }: {
   routes: Coordinate[][];
   selected?: number;
   label?: string;
   stops?: Stop[];
   climbSegments?: ClimbSegment[];
+  missingRouteMessage?: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -248,14 +282,16 @@ function CourseMap({
   useEffect(() => {
     let active = true;
     setStatus("loading");
+    if (!routes.some((route) => route.length)) {
+      setStatus("error");
+      setMessage(missingRouteMessage);
+      return () => {
+        active = false;
+      };
+    }
     loadKakaoMaps()
       .then((kakao) => {
         if (!active || !container.current) return;
-        if (!routes.some((route) => route.length)) {
-          setStatus("error");
-          setMessage("저장된 경로 좌표가 없습니다.");
-          return;
-        }
         const first = routes.find((route) => route.length)![0];
         const map = new kakao.maps.Map(container.current, {
           center: new kakao.maps.LatLng(first.lat, first.lng),
@@ -349,7 +385,8 @@ function CourseMap({
     return () => {
       active = false;
     };
-  }, [routes, selected, stops, climbSegments, attempt]);
+  }, [routes, selected, stops, climbSegments, attempt, missingRouteMessage]);
+  const hasRoute = routes.some((route) => route.length);
   return (
     <div
       className={`map live-map ${status === "error" ? "map-error" : ""}`}
@@ -363,22 +400,28 @@ function CourseMap({
           <b>{status === "error" ? "지도를 표시할 수 없어요" : message}</b>
           {status === "error" && (
             <>
-              <RouteFallback routes={routes} selected={selected} stops={stops} />
+              {hasRoute && <RouteFallback routes={routes} selected={selected} stops={stops} />}
               <small>
                 {message}
-                <br />
-                현재는 경로 미리보기를 표시합니다. 카카오 JavaScript SDK 도메인에 현재 주소를 등록해 주세요.
+                {hasRoute && (
+                  <>
+                    <br />
+                    카카오맵 대신 경로 미리보기를 표시합니다. 잠시 후 다시 시도해 주세요.
+                  </>
+                )}
               </small>
-              <button
-                type="button"
-                className="secondary map-retry"
-                onClick={() => {
-                  setMessage("카카오맵 다시 불러오는 중…");
-                  setAttempt((value) => value + 1);
-                }}
-              >
-                지도 다시 불러오기
-              </button>
+              {hasRoute && (
+                <button
+                  type="button"
+                  className="secondary map-retry"
+                  onClick={() => {
+                    setMessage("카카오맵 다시 불러오는 중…");
+                    setAttempt((value) => value + 1);
+                  }}
+                >
+                  지도 다시 불러오기
+                </button>
+              )}
             </>
           )}
         </div>
@@ -524,10 +567,54 @@ function RideDetail({
   const [sharing, setSharing] = useState(false);
   const [weather, setWeather] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  const storedDetailRoute = ride.course.coordinates ?? emptyCoordinates;
+  const [recoveredDetailRoute, setRecoveredDetailRoute] = useState<Coordinate[]>([]);
+  const [detailRouteRecovery, setDetailRouteRecovery] = useState<"idle" | "loading" | "error">("idle");
+  const [detailRouteMessage, setDetailRouteMessage] = useState("이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.");
+  const [detailStops, setDetailStops] = useState(ride.course.stops ?? emptyStops);
+  const detailRoute = storedDetailRoute.length >= 2 ? storedDetailRoute : recoveredDetailRoute;
   const detailMapRoutes = useMemo(
-    () => [ride.course.coordinates ?? emptyCoordinates],
-    [ride.course.coordinates],
+    () => [detailRoute],
+    [detailRoute],
   );
+  useEffect(() => {
+    if (storedDetailRoute.length >= 2 || recoveredDetailRoute.length >= 2) return;
+    const startName = String(ride.course.startName ?? "").trim();
+    const endName = String(ride.course.endName ?? "").trim();
+    if (!startName) {
+      setDetailRouteRecovery("error");
+      setDetailRouteMessage("출발지 정보가 없어 경로를 자동 복구할 수 없습니다.");
+      return;
+    }
+    let active = true;
+    setDetailRouteRecovery("loading");
+    void recoverStoredRoute(startName, endName, Number(ride.course.distanceKm ?? 0))
+      .then(async (repaired) => {
+        if (!active) return;
+        setRecoveredDetailRoute(repaired.coordinates);
+        setDetailRouteRecovery("idle");
+        if (auth?.currentUser?.uid === ride.hostId)
+          await repairRideCourse({ rideId: ride.id, ...repaired }).catch(() => undefined);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDetailRouteRecovery("error");
+        setDetailRouteMessage("기존 경로를 복구하지 못했습니다. 출발·도착지를 확인해 주세요.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [ride.id, ride.hostId, ride.course.startName, ride.course.endName, ride.course.distanceKm, storedDetailRoute, recoveredDetailRoute.length]);
+  useEffect(() => {
+    if (detailStops.length || detailRoute.length < 2) return;
+    let active = true;
+    void searchCoursePois(detailRoute)
+      .then((rows) => active && setDetailStops(rows))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [detailRoute, detailStops.length]);
   useEffect(() => {
     void getRideDetails(initialRide.id)
       .then((next) => {
@@ -683,12 +770,17 @@ function RideDetail({
       <button className="back" onClick={onBack}>
         ← 목록으로
       </button>
-      <CourseMap
-        routes={detailMapRoutes}
-        label={ride.course.title}
-        stops={ride.course.stops ?? emptyStops}
-        climbSegments={ride.course.climbSegments ?? []}
-      />
+      {detailRouteRecovery === "loading" ? (
+        <div className="map live-map"><div className="map-state" role="status"><b>출발·도착지로 자전거 경로 복구 중…</b></div></div>
+      ) : (
+        <CourseMap
+          routes={detailMapRoutes}
+          label={ride.course.title}
+          stops={detailStops}
+          climbSegments={ride.course.climbSegments ?? []}
+          missingRouteMessage={detailRouteMessage}
+        />
+      )}
       <div className="ride-flow" aria-label="라이딩 진행 단계">
         <span className="done">1 코스 선정</span>
         <span className={ride.status !== "계획" ? "done" : ""}>2 인원 모집</span>
@@ -2070,13 +2162,42 @@ function LoginPanel() {
 }
 
 function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void }) {
-  const route = useMemo(() => plan.course.coordinates ?? [], [plan.course.coordinates]);
+  const [route, setRoute] = useState<Coordinate[]>(plan.course.coordinates ?? []);
   const mapRoutes = useMemo(() => [route], [route]);
   const [stops, setStops] = useState(plan.course.stops ?? []);
   const [loadingPois, setLoadingPois] = useState(false);
+  const [routeRecovery, setRouteRecovery] = useState<"idle" | "loading" | "error">("idle");
+  const [routeMessage, setRouteMessage] = useState("이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.");
   const [status, setStatus] = useState(plan.status);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  useEffect(() => {
+    if (route.length >= 2) return;
+    const startName = String(plan.course.startName ?? plan.startName ?? "").trim();
+    const endName = String(plan.course.endName ?? "").trim();
+    if (!startName) {
+      setRouteRecovery("error");
+      setRouteMessage("출발지 정보가 없어 경로를 자동 복구할 수 없습니다.");
+      return;
+    }
+    let active = true;
+    setRouteRecovery("loading");
+    void recoverStoredRoute(startName, endName, Number(plan.course.distanceKm ?? 0))
+      .then(async (repaired) => {
+        if (!active) return;
+        setRoute(repaired.coordinates);
+        setRouteRecovery("idle");
+        await repairRideCourse({ rideId: plan.id, ...repaired }).catch(() => undefined);
+      })
+      .catch(() => {
+        if (!active) return;
+        setRouteRecovery("error");
+        setRouteMessage("기존 경로를 복구하지 못했습니다. 출발·도착지를 확인해 주세요.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [plan.id, plan.course.startName, plan.course.endName, plan.course.distanceKm, plan.startName, route.length]);
   useEffect(() => {
     if (stops.length || route.length < 2) return;
     setLoadingPois(true);
@@ -2088,12 +2209,17 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
   return (
     <section className="page detail saved-detail">
       <button className="back" onClick={onBack}>← 내 라이딩으로</button>
-      <CourseMap
-        routes={mapRoutes}
-        label={`${plan.title} 저장 코스`}
-        stops={stops}
-        climbSegments={plan.course.climbSegments ?? []}
-      />
+      {routeRecovery === "loading" ? (
+        <div className="map live-map"><div className="map-state" role="status"><b>출발·도착지로 자전거 경로 복구 중…</b></div></div>
+      ) : (
+        <CourseMap
+          routes={mapRoutes}
+          label={`${plan.title} 저장 코스`}
+          stops={stops}
+          climbSegments={plan.course.climbSegments ?? []}
+          missingRouteMessage={routeMessage}
+        />
+      )}
       <div className="detail-head">
         <div><span className="eyebrow">{status}</span><h1>{plan.title}</h1><p>{plan.startsAt ? fmt(plan.startsAt) : "날짜·시간 미정"}</p></div>
         {status === "진행중" ? (

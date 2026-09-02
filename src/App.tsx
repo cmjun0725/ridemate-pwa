@@ -74,6 +74,7 @@ const fmt = (value: string) =>
   }).format(new Date(value));
 const routeColors = ["#087458", "#ef7d5f", "#4e65c5"];
 const emptyStops: Stop[] = [];
+const emptyCoordinates: Coordinate[] = [];
 const facilityMeta = {
   편의점: { icon: "🏪", className: "convenience" },
   화장실: { icon: "🚻", className: "restroom" },
@@ -255,7 +256,6 @@ function CourseMap({
           setMessage("저장된 경로 좌표가 없습니다.");
           return;
         }
-        container.current.replaceChildren();
         const first = routes.find((route) => route.length)![0];
         const map = new kakao.maps.Map(container.current, {
           center: new kakao.maps.LatLng(first.lat, first.lng),
@@ -524,6 +524,10 @@ function RideDetail({
   const [sharing, setSharing] = useState(false);
   const [weather, setWeather] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  const detailMapRoutes = useMemo(
+    () => [ride.course.coordinates ?? emptyCoordinates],
+    [ride.course.coordinates],
+  );
   useEffect(() => {
     void getRideDetails(initialRide.id)
       .then((next) => {
@@ -680,7 +684,7 @@ function RideDetail({
         ← 목록으로
       </button>
       <CourseMap
-        routes={[ride.course.coordinates ?? []]}
+        routes={detailMapRoutes}
         label={ride.course.title}
         stops={ride.course.stops ?? emptyStops}
         climbSegments={ride.course.climbSegments ?? []}
@@ -746,18 +750,26 @@ function RideDetail({
           onSubmit={async (event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
-            await reportUser({
-              targetUserId: targetId,
-              rideId: ride.id,
-              category: String(form.get("category")) as
-                | "unsafe"
-                | "harassment"
-                | "no_show"
-                | "other",
-              details: String(form.get("details")),
-            });
-            setReportOpen(false);
-            setMessage("신고가 접수되어 관리자가 확인합니다.");
+            try {
+              await reportUser({
+                targetUserId: targetId,
+                rideId: ride.id,
+                category: String(form.get("category")) as
+                  | "unsafe"
+                  | "harassment"
+                  | "no_show"
+                  | "other",
+                details: String(form.get("details")),
+              });
+              setReportOpen(false);
+              setMessage("신고가 접수되어 관리자가 확인합니다.");
+            } catch (error) {
+              setMessage(
+                error instanceof Error
+                  ? error.message
+                  : "신고를 접수하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+              );
+            }
           }}
         >
           <h2>방장 신고</h2>
@@ -779,9 +791,17 @@ function RideDetail({
               type="button"
               className="secondary"
               onClick={async () => {
-                await setUserBlocked(targetId, true);
-                setReportOpen(false);
-                setMessage("이 사용자를 차단했습니다.");
+                try {
+                  await setUserBlocked(targetId, true);
+                  setReportOpen(false);
+                  setMessage("이 사용자를 차단했습니다.");
+                } catch (error) {
+                  setMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "차단 처리를 완료하지 못했습니다.",
+                  );
+                }
               }}
             >
               차단만 하기
@@ -1113,8 +1133,13 @@ function CandidateResults({
 }) {
   const [selected, setSelected] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [pois, setPois] = useState<Stop[]>([]);
   const [poisLoading, setPoisLoading] = useState(false);
+  const candidateMapRoutes = useMemo(
+    () => candidates.map((candidate) => candidate.coordinates),
+    [candidates],
+  );
   useEffect(() => {
     let active = true;
     setPoisLoading(true);
@@ -1148,6 +1173,7 @@ function CandidateResults({
     const startName =
       candidate.startName ?? String(metadata.startName ?? "데이터 분석 출발지");
     setSaving(true);
+    setSaveError("");
     try {
       if (!auth?.currentUser)
         throw new Error(
@@ -1172,6 +1198,12 @@ function CandidateResults({
       await trackProductEvent("course_created");
       sessionStorage.removeItem("ridemate-create-draft");
       onCreated();
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "선택한 코스를 저장하지 못했습니다. 다시 시도해 주세요.",
+      );
     } finally {
       setSaving(false);
     }
@@ -1188,7 +1220,7 @@ function CandidateResults({
         </button>
       </div>
       <CourseMap
-        routes={candidates.map((candidate) => candidate.coordinates)}
+        routes={candidateMapRoutes}
         selected={selected}
         label="추천 후보 비교"
         stops={pois}
@@ -1234,6 +1266,7 @@ function CandidateResults({
           </button>
         ))}
       </div>
+      {saveError && <p className="form-error" role="alert">{saveError}</p>}
       <button className="primary wide" disabled={saving} onClick={store}>
         {saving
           ? "저장 중…"
@@ -1245,7 +1278,13 @@ function CandidateResults({
   );
 }
 
-function CreateRide({ onCreated }: { onCreated: () => void }) {
+function CreateRide({
+  onCreated,
+  onLogin,
+}: {
+  onCreated: () => void;
+  onLogin: () => void;
+}) {
   const [purpose, setPurpose] = useState<"group" | "solo">("group");
   const [mode, setMode] = useState<"guided" | "manual">("guided");
   const [tripType, setTripType] = useState<"round" | "oneway">("round");
@@ -1384,6 +1423,17 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
       <p className="sub">
         함께 달릴 방을 만들거나 나만의 코스를 계획할 수 있어요.
       </p>
+      {!auth?.currentUser && (
+        <aside className="auth-required" role="status">
+          <div>
+            <b>저장하려면 로그인이 필요해요</b>
+            <span>먼저 로그인하면 입력 도중 막히지 않습니다.</span>
+          </div>
+          <button type="button" className="secondary" onClick={onLogin}>
+            로그인
+          </button>
+        </aside>
+      )}
       <div className="purpose-tabs" role="group" aria-label="라이딩 목적">
         <button
           className={!solo ? "active" : ""}
@@ -1549,10 +1599,10 @@ function CreateRide({ onCreated }: { onCreated: () => void }) {
               예상 거리
               <input
                 name="manualDistance"
-                required
                 type="number"
                 min="1"
                 step="0.1"
+                placeholder="자동 계산"
               />
               <small>km</small>
             </label>
@@ -1615,12 +1665,13 @@ function LegalSheet({
 }) {
   const copy = legalCopy[kind];
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop" role="presentation" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <section
         className="legal-sheet"
         role="dialog"
         aria-modal="true"
         aria-labelledby="legal-title"
+        onClick={(e) => e.stopPropagation()}
       >
         <button className="close-modal" aria-label="닫기" onClick={onClose}>
           <X />
@@ -1871,11 +1922,19 @@ function LoginPanel() {
           <button
             className="primary wide"
             onClick={() =>
-              sendEmailVerification(user).then(() =>
-                setMessage(
-                  "인증 메일을 전송했습니다. 메일 인증 후 다시 로그인해 주세요.",
-                ),
-              )
+              sendEmailVerification(user)
+                .then(() =>
+                  setMessage(
+                    "인증 메일을 전송했습니다. 메일 인증 후 다시 로그인해 주세요.",
+                  ),
+                )
+                .catch((error) =>
+                  setMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "인증 메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                  ),
+                )
             }
           >
             이메일 인증 보내기
@@ -2012,10 +2071,12 @@ function LoginPanel() {
 
 function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void }) {
   const route = useMemo(() => plan.course.coordinates ?? [], [plan.course.coordinates]);
+  const mapRoutes = useMemo(() => [route], [route]);
   const [stops, setStops] = useState(plan.course.stops ?? []);
   const [loadingPois, setLoadingPois] = useState(false);
   const [status, setStatus] = useState(plan.status);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
   useEffect(() => {
     if (stops.length || route.length < 2) return;
     setLoadingPois(true);
@@ -2028,7 +2089,7 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
     <section className="page detail saved-detail">
       <button className="back" onClick={onBack}>← 내 라이딩으로</button>
       <CourseMap
-        routes={[route]}
+        routes={mapRoutes}
         label={`${plan.title} 저장 코스`}
         stops={stops}
         climbSegments={plan.course.climbSegments ?? []}
@@ -2036,11 +2097,12 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
       <div className="detail-head">
         <div><span className="eyebrow">{status}</span><h1>{plan.title}</h1><p>{plan.startsAt ? fmt(plan.startsAt) : "날짜·시간 미정"}</p></div>
         {status === "진행중" ? (
-          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);try{await finishPublicRide(plan.id);setStatus("완료")}finally{setBusy(false)}}}>라이딩 종료</button>
+          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);setActionError("");try{await finishPublicRide(plan.id);setStatus("완료")}catch(e){setActionError(e instanceof Error ? e.message : "라이딩 종료 처리를 완료하지 못했습니다.")}finally{setBusy(false)}}}>라이딩 종료</button>
         ) : ["계획","모집중","마감"].includes(status) ? (
-          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);try{await startPublicRide(plan.id);setStatus("진행중")}finally{setBusy(false)}}}>라이딩 시작</button>
+          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);setActionError("");try{await startPublicRide(plan.id);setStatus("진행중")}catch(e){setActionError(e instanceof Error ? e.message : "라이딩 시작 처리를 완료하지 못했습니다.")}finally{setBusy(false)}}}>라이딩 시작</button>
         ) : null}
       </div>
+      {actionError && <p className="form-error" role="alert">{actionError}</p>}
       <div className="stat-grid">
         <span><Route />{Number(plan.course.distanceKm ?? 0)} km<small>거리</small></span>
         <span><Mountain />{Number(plan.course.elevationM ?? 0)} m<small>누적 상승</small></span>
@@ -2089,21 +2151,55 @@ function SavedGroupRide({ plan, onBack }: { plan: SavedPlan; onBack: () => void 
   );
 }
 
-function MyRides() {
+function MyRides({ onLogin }: { onLogin: () => void }) {
   const [plans, setPlans] = useState<SavedPlan[]>(readPlans);
   const [selected, setSelected] = useState<SavedPlan | null>(null);
+  const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
+  const [authReady, setAuthReady] = useState(!auth);
+  const [loading, setLoading] = useState(Boolean(auth?.currentUser));
+  const [loadError, setLoadError] = useState("");
   useEffect(() => {
-    if (auth?.currentUser)
+    if (!auth) return;
+    let active = true;
+    const unsubscribe = onAuthStateChanged(auth, (next) => {
+      if (!active) return;
+      setUser(next);
+      setAuthReady(true);
+      if (!next) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setLoadError("");
       void listMyRidePlans()
-        .then(setPlans)
-        .catch(() => undefined);
+        .then((rows) => active && setPlans(rows))
+        .catch(() => active && setLoadError("저장한 라이딩을 불러오지 못했습니다."))
+        .finally(() => active && setLoading(false));
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
+  if (!authReady)
+    return <section className="page"><div className="skeleton-card" aria-label="로그인 상태 확인 중" /></section>;
+  if (!user)
+    return (
+      <section className="page login-required-page">
+        <CircleUserRound size={52} aria-hidden="true" />
+        <h1>내 라이딩</h1>
+        <p className="sub">로그인하면 저장한 코스와 참여 중인 라이딩을 확인할 수 있어요.</p>
+        <button className="primary wide" onClick={onLogin}>로그인하러 가기</button>
+      </section>
+    );
   if (selected) return selected.purpose === "group" ? <SavedGroupRide plan={selected} onBack={() => setSelected(null)} /> : <SavedRideDetail plan={selected} onBack={() => setSelected(null)} />;
   return (
     <section className="page">
       <h1>내 라이딩</h1>
       <p className="sub">저장한 코스와 모집 방을 누르면 경로·업힐·편의시설을 확인할 수 있어요.</p>
       <div className="list">
+        {loading && <div className="skeleton-card" aria-label="내 라이딩 불러오는 중" />}
+        {loadError && <p className="form-error" role="alert">{loadError}</p>}
         {plans.map((plan) => (
           <button className="saved-plan saved-plan-button" key={plan.id} onClick={() => setSelected(plan)}>
             <span>{plan.purpose === "solo" ? "혼자 라이딩" : plan.status}</span>
@@ -2113,7 +2209,7 @@ function MyRides() {
             <div><b>{Number(plan.course.distanceKm ?? plan.distanceKm ?? 0)}km</b><b>상승 {Number(plan.course.elevationM ?? plan.elevationM ?? 0)}m</b></div>
           </button>
         ))}
-        {!plans.length && (
+        {!loading && !loadError && !plans.length && (
           <p className="empty">
             아직 저장한 라이딩이 없습니다.
             <br />
@@ -2232,9 +2328,9 @@ export default function App() {
   const content = selected ? (
     <RideDetail ride={selected} onBack={() => setSelected(null)} />
   ) : tab === "create" ? (
-    <CreateRide onCreated={() => setTab("my")} />
+    <CreateRide onCreated={() => setTab("my")} onLogin={() => setTab("profile")} />
   ) : tab === "my" ? (
-    <MyRides />
+    <MyRides onLogin={() => setTab("profile")} />
   ) : tab === "profile" ? (
     <LoginPanel />
   ) : (

@@ -16,6 +16,7 @@ import {
   Share2,
   ShieldCheck,
   Star,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import {
   listRideMessages,
   reportUser,
   repairRideCourse,
+  removeRideFromMyList,
   requestCourseCandidates,
   requestManualRoute,
   saveRiderSettings,
@@ -2476,6 +2478,8 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
   const [authReady, setAuthReady] = useState(!auth);
   const [loading, setLoading] = useState(Boolean(auth?.currentUser));
   const [loadError, setLoadError] = useState("");
+  const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   useEffect(() => {
     if (!auth) return;
     let active = true;
@@ -2519,13 +2523,55 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
         {loading && <div className="skeleton-card" aria-label="내 라이딩 불러오는 중" />}
         {loadError && <p className="form-error" role="alert">{loadError}</p>}
         {plans.map((plan) => (
-          <button className="saved-plan saved-plan-button" key={plan.id} onClick={() => setSelected(plan)}>
-            <span>{plan.purpose === "solo" ? "혼자 라이딩" : plan.status}</span>
-            <ChevronRight size={18} />
-            <h3>{plan.title}</h3>
-            <p><MapPin size={14} />{String(plan.course.startName ?? plan.startName ?? "출발지 미정")}</p>
-            <div><b>{Number(plan.course.distanceKm ?? plan.distanceKm ?? 0)}km</b><b>상승 {Number(plan.course.elevationM ?? plan.elevationM ?? 0)}m</b></div>
-          </button>
+          <article className="saved-plan" key={plan.id}>
+            <button className="saved-plan-button" onClick={() => setSelected(plan)}>
+              <span>{plan.purpose === "solo" ? "혼자 라이딩" : plan.status}</span>
+              <ChevronRight size={18} />
+              <h3>{plan.title}</h3>
+              <p><MapPin size={14} />{String(plan.course.startName ?? plan.startName ?? "출발지 미정")}</p>
+              <div><b>{Number(plan.course.distanceKm ?? plan.distanceKm ?? 0)}km</b><b>상승 {Number(plan.course.elevationM ?? plan.elevationM ?? 0)}m</b></div>
+            </button>
+            <button
+              className="saved-plan-remove"
+              aria-label={`${plan.title} 내 목록에서 삭제`}
+              title="내 목록에서 삭제"
+              onClick={() => setRemoveConfirmId(plan.id)}
+            >
+              <Trash2 size={17} aria-hidden="true" />
+            </button>
+            {removeConfirmId === plan.id && (
+              <div className="saved-plan-confirm" role="alertdialog" aria-label="라이딩 목록 삭제 확인">
+                <p>내 라이딩 목록에서 삭제할까요?</p>
+                <small>다른 참여자의 방과 기록은 삭제되지 않습니다.</small>
+                <div>
+                  <button className="secondary" onClick={() => setRemoveConfirmId(null)}>취소</button>
+                  <button
+                    className="danger"
+                    disabled={removingId === plan.id}
+                    onClick={async () => {
+                      setRemovingId(plan.id);
+                      setLoadError("");
+                      try {
+                        await removeRideFromMyList(plan.id);
+                        setPlans((current) => current.filter((row) => row.id !== plan.id));
+                        setRemoveConfirmId(null);
+                        try {
+                          const legacy = readPlans().filter((row) => row.id !== plan.id);
+                          localStorage.setItem("ridemate-plans", JSON.stringify(legacy));
+                        } catch { /* 로컬 이전 데이터 정리는 실패해도 서버 목록에 영향 없음 */ }
+                      } catch (error) {
+                        setLoadError(error instanceof Error ? error.message : "목록에서 삭제하지 못했습니다.");
+                      } finally {
+                        setRemovingId(null);
+                      }
+                    }}
+                  >
+                    {removingId === plan.id ? "삭제 중…" : "목록에서 삭제"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </article>
         ))}
         {!loading && !loadError && !plans.length && (
           <div className="empty">

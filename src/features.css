@@ -360,7 +360,7 @@ legend {
   padding: 15px;
   position: relative;
 }
-.saved-plan > span {
+.saved-plan-button > span {
   display: inline-block;
   background: #e7f5ee;
   color: #0d745a;
@@ -369,13 +369,20 @@ legend {
   font-size: 10px;
   font-weight: 700;
 }
-.saved-plan > button {
+.saved-plan-remove {
   position: absolute;
   right: 12px;
   top: 12px;
   color: #7b8781;
-  padding: 4px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 10px;
+  z-index: 2;
 }
+.saved-plan-remove:hover,.saved-plan-remove:focus-visible{background:#fff0ed;color:#b44732}
 .saved-plan h3 {
   font-size: 16px;
   margin: 8px 0 5px;
@@ -388,16 +395,18 @@ legend {
   color: #6d7974;
   font-size: 11px;
 }
-.saved-plan > div {
+.saved-plan-button > div {
   display: flex;
   gap: 14px;
   margin-top: 12px;
   font-size: 12px;
   color: #34443d;
 }
-.saved-plan-button{display:block;width:100%;text-align:left;color:inherit;cursor:pointer}
-.saved-plan-button>svg{position:absolute;right:14px;top:16px;color:#708078}
+.saved-plan-button{display:block;width:100%;padding:0 38px 0 0;text-align:left;color:inherit;cursor:pointer}
+.saved-plan-button>svg{position:absolute;right:56px;top:23px;color:#708078}
 .saved-plan-button:focus-visible{outline:3px solid #78cdb0;outline-offset:2px}
+.saved-plan-confirm{position:absolute;inset:7px;z-index:3;display:grid;align-content:center;gap:5px;padding:12px;border:1px solid #edc6be;border-radius:13px;background:#fffaf8;box-shadow:0 6px 18px #48201524}
+.saved-plan-confirm p{margin:0;color:#75392d;font-size:12px;font-weight:800}.saved-plan-confirm small{color:#81655e;font-size:9px}.saved-plan-confirm>div{display:flex;justify-content:flex-end;gap:7px;margin-top:4px}.saved-plan-confirm button{min-height:40px;padding:8px 11px;font-size:11px;border-radius:9px}.saved-plan-confirm .danger{background:#b83e2d;color:#fff}
 .ride-flow{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:12px 0}
 .ride-flow span{padding:8px 5px;text-align:center;border-radius:9px;background:#edf1ef;color:#738079;font-size:9px;font-weight:800}
 .ride-flow span.done{background:#dff3e9;color:#09644e}
@@ -661,6 +670,8 @@ legend {
   .stop-editor small { color: #adbbb6; }
   .live-rider-list span { background: #2b2442; color: #c6b9df; }
   .live-rider-list b { color: #d8caff; }
+  .saved-plan-remove:hover,.saved-plan-remove:focus-visible{background:#44231d;color:#ffad9c}
+  .saved-plan-confirm{background:#2f1d19;border-color:#754337}.saved-plan-confirm p{color:#ffd1c7}.saved-plan-confirm small{color:#c7aaa4}
   .create-page > form .notice,
   .route-method,
   .segmented {

@@ -95,6 +95,8 @@ export const listMyRidePlans = () =>
     "listMyRidePlans",
     {},
   ).then((result) => result.plans);
+export const removeRideFromMyList = (rideId: string) =>
+  callable<{ rideId: string }, { ok: boolean }>("removeRideFromMyList", { rideId });
 export const bootstrapAdmin = () =>
   callable<Record<string, never>, { ok: boolean }>("bootstrapAdmin", {});
 export const getAdminDashboard = () =>

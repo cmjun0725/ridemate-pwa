@@ -731,8 +731,14 @@ export const listMyRidePlans = onCall({ region }, async (request) => {
     .where("userId", "==", request.auth!.uid)
     .limit(50)
     .get();
-  const rideRows = await Promise.all(
+  const archiveRows = await Promise.all(
     memberships.docs.map((member) =>
+      db.collection("rideArchives").doc(`${request.auth!.uid}_${String(member.data().rideId)}`).get(),
+    ),
+  );
+  const visibleMemberships = memberships.docs.filter((_, index) => !archiveRows[index].exists);
+  const rideRows = await Promise.all(
+    visibleMemberships.map((member) =>
       db.collection("rides").doc(String(member.data().rideId)).get(),
     ),
   );
@@ -762,6 +768,21 @@ export const listMyRidePlans = onCall({ region }, async (request) => {
       };
     }),
   };
+});
+
+export const removeRideFromMyList = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const rideId = String((request.data as { rideId?: string }).rideId ?? "");
+  if (!rideId) throw new HttpsError("invalid-argument", "라이딩 정보가 필요합니다.");
+  const membership = await db.collection("rideMembers").doc(`${rideId}_${request.auth!.uid}`).get();
+  if (!membership.exists)
+    throw new HttpsError("permission-denied", "내 라이딩 목록에 있는 항목만 삭제할 수 있습니다.");
+  await db.collection("rideArchives").doc(`${request.auth!.uid}_${rideId}`).set({
+    userId: request.auth!.uid,
+    rideId,
+    archivedAt: FieldValue.serverTimestamp(),
+  });
+  return { ok: true };
 });
 
 const serialize = (row: FirebaseFirestore.DocumentSnapshot) => {

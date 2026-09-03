@@ -81,5 +81,13 @@ export interface RouteCandidate {
   elevationProfile: ElevationPoint[];
   climbSegments: ClimbSegment[];
   score?: number;
+  criteria?: {
+    distanceWeight: number;
+    uphillWeight: number;
+    targetDistanceKm: number;
+    targetClimbRate: number;
+    distanceMatchPercent: number;
+    uphillMatchPercent: number;
+  };
   verified: boolean;
 }

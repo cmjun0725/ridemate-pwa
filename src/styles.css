@@ -306,7 +306,7 @@ nav button.current {
   color: #087458;
   font-weight: 700;
 }
-nav button:nth-child(3) {
+nav button.create-nav {
   margin-top: -24px;
   background: #0d5f4c;
   border: 5px solid #fbfcfa;
@@ -699,7 +699,7 @@ select {
   }
   nav button svg { width: 18px; }
   nav button.current { background: #e5f3ed; }
-  nav button:nth-child(3) {
+  nav button.create-nav {
     width: auto;
     height: 44px;
     margin: 0;

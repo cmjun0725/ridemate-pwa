@@ -2,9 +2,11 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   CalendarDays,
+  CheckCircle2,
   ChevronRight,
   CircleUserRound,
   Clock3,
+  Compass,
   Heart,
   LifeBuoy,
   MapPin,
@@ -33,7 +35,7 @@ import {
 const AdminPanel = lazy(() => import("./AdminPanel"));
 import { auth } from "./firebase";
 import { buildRideStart, filterPublicRides, validateRideContent } from "./domain";
-import { geocodePlace, loadKakaoMaps, searchCoursePois } from "./kakao";
+import { geocodePlace, loadKakaoMaps, searchCoursePois, searchPlaces, type PlaceSearchResult } from "./kakao";
 import {
   bootstrapAdmin,
   createRideReview,
@@ -69,7 +71,7 @@ import {
 } from "./services";
 import type { ClimbSegment, Coordinate, ElevationPoint, LiveLocation, Ride, RouteCandidate, Stop } from "./types";
 
-type Tab = "home" | "search" | "create" | "my" | "profile";
+type Tab = "home" | "search" | "courses" | "create" | "my" | "profile";
 const fmt = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
     month: "long",
@@ -209,6 +211,93 @@ const recoverStoredRoute = async (
     throw new Error("복구할 자전거 경로를 찾지 못했습니다.");
   return candidate;
 };
+
+function PlacePicker({
+  name,
+  label,
+  placeholder,
+}: {
+  name: string;
+  label: string;
+  placeholder: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlaceSearchResult[]>([]);
+  const [selected, setSelected] = useState<PlaceSearchResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (selected || query.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      void searchPlaces(query)
+        .then((rows) => active && setResults(rows))
+        .catch(() => active && setResults([]))
+        .finally(() => active && setLoading(false));
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, selected]);
+  const listId = `${name}-place-results`;
+  return (
+    <div className="place-field">
+      <label htmlFor={`${name}-query`}>{label}</label>
+      <div className={`place-input ${selected ? "confirmed" : ""}`}>
+        <MapPin size={17} aria-hidden="true" />
+        <input
+          id={`${name}-query`}
+          required
+          autoComplete="off"
+          value={query}
+          placeholder={placeholder}
+          aria-controls={listId}
+          aria-expanded={results.length > 0}
+          aria-autocomplete="list"
+          onBlur={() => setTouched(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setSelected(null);
+            setTouched(false);
+          }}
+        />
+        {selected ? <CheckCircle2 className="place-confirmed" aria-label="장소 선택 완료" /> : loading ? <span className="place-loading">검색 중</span> : null}
+      </div>
+      <input type="hidden" name={name} value={selected?.name ?? ""} />
+      <input type="hidden" name={`${name}Lat`} value={selected?.lat ?? ""} />
+      <input type="hidden" name={`${name}Lng`} value={selected?.lng ?? ""} />
+      {results.length > 0 && (
+        <div className="place-results" id={listId} role="listbox" aria-label={`${label} 검색 결과`}>
+          {results.map((place) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={selected?.id === place.id}
+              key={place.id}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setSelected(place);
+                setQuery(place.name);
+                setResults([]);
+                setTouched(false);
+              }}
+            >
+              <b>{place.name}</b><span>{place.address}</span><small>{place.category}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {touched && query && !selected && !loading && (
+        <small className="place-warning">검색 결과에서 정확한 장소를 선택해 주세요.</small>
+      )}
+    </div>
+  );
+}
 
 function RouteFallback({
   routes,
@@ -1404,6 +1493,21 @@ function CommonRideFields({ solo }: { solo: boolean }) {
   );
 }
 
+function RecommendationBasis({ candidate }: { candidate: RouteCandidate }) {
+  const criteria = candidate.criteria;
+  return (
+    <article className="recommendation-basis" aria-label="추천 선정 기준">
+      <div><b>추천 기준</b><span>조건 오차 {candidate.score ?? 0}점 · 낮을수록 적합</span></div>
+      <p>자전거 주행 경로의 실제 거리와 고도를 검증한 뒤 거리 70%, 업힐 30% 비중으로 순위를 정합니다.</p>
+      <div className="criteria-bars">
+        <span><i style={{ width: `${criteria?.distanceMatchPercent ?? 0}%` }} /><b>거리 적합도 {criteria?.distanceMatchPercent ?? 0}%</b><small>목표 {criteria?.targetDistanceKm ?? "-"}km · 차이 {candidate.distanceDifferenceKm}km</small></span>
+        <span><i style={{ width: `${criteria?.uphillMatchPercent ?? 0}%` }} /><b>업힐 적합도 {criteria?.uphillMatchPercent ?? 0}%</b><small>목표 {criteria?.targetClimbRate ?? "-"}m/km · 실제 {candidate.climbRate}m/km</small></span>
+      </div>
+      <small>※ 교통 통제·노면 공사·현장 안전 상태는 출발 전 별도로 확인해야 합니다.</small>
+    </article>
+  );
+}
+
 function CandidateResults({
   candidates,
   onReset,
@@ -1513,6 +1617,7 @@ function CandidateResults({
         climbSegments={candidates[selected]?.climbSegments ?? []}
       />
       <ElevationChart points={candidates[selected]?.elevationProfile ?? []} />
+      <RecommendationBasis candidate={candidates[selected]} />
       {(candidates[selected]?.climbSegments.length ?? 0) > 0 && (
         <article className="climb-list candidate-climbs">
           <b>빨간색 업힐 분석</b>
@@ -1541,6 +1646,7 @@ function CandidateResults({
                 {candidate.distanceKm}km · 상승 {candidate.elevationM}m · km당{" "}
                 {candidate.climbRate}m
               </small>
+              <small className="candidate-score">거리 {candidate.criteria?.distanceMatchPercent ?? 0}% · 업힐 {candidate.criteria?.uphillMatchPercent ?? 0}% 적합</small>
             </div>
             <span
               className={`verified ${candidate.recommended ? "recommended" : ""}`}
@@ -1560,6 +1666,89 @@ function CandidateResults({
             ? "내 라이딩 계획 저장"
             : "선택한 코스로 방 만들기"}
       </button>
+    </section>
+  );
+}
+
+function CourseExplorer({ onCreate }: { onCreate: () => void }) {
+  const [tripType, setTripType] = useState<"round" | "oneway">("round");
+  const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
+  const [selected, setSelected] = useState(0);
+  const [pois, setPois] = useState<Stop[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [poiLoading, setPoiLoading] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const route = candidates[selected]?.coordinates;
+    if (!route?.length) return;
+    let active = true;
+    setPoiLoading(true);
+    void searchCoursePois(route)
+      .then((rows) => active && setPois(rows))
+      .catch(() => active && setPois([]))
+      .finally(() => active && setPoiLoading(false));
+    return () => { active = false; };
+  }, [candidates, selected]);
+  if (candidates.length) {
+    const candidate = candidates[selected];
+    return (
+      <section className="page course-explorer explorer-results">
+        <div className="result-head">
+          <div><span className="eyebrow">로그인 없이 탐색한 결과</span><h1>주변 코스 {candidates.length}개</h1></div>
+          <button className="text-button" onClick={() => { setCandidates([]); setPois([]); }}>조건 수정</button>
+        </div>
+        <CourseMap routes={candidates.map((row) => row.coordinates)} selected={selected} stops={pois} climbSegments={candidate.climbSegments} label="주변 코스 탐색 결과" />
+        <div className="explorer-grid">
+          <div>
+            <ElevationChart points={candidate.elevationProfile} />
+            <RecommendationBasis candidate={candidate} />
+            <article className="poi-summary"><b>코스 주변 시설</b><FacilityList stops={pois} loading={poiLoading} compact /></article>
+          </div>
+          <div className="candidate-list">
+            {candidates.map((row, index) => (
+              <button key={row.id} className={`candidate-card ${selected === index ? "selected" : ""}`} onClick={() => setSelected(index)}>
+                <span className="route-swatch" style={{ background: routeColors[index] }} />
+                <div><b>{row.title}</b><p>{row.distanceKm}km · 상승 {row.elevationM}m</p><small>거리 {row.criteria?.distanceMatchPercent ?? 0}% · 업힐 {row.criteria?.uphillMatchPercent ?? 0}% 적합</small></div>
+                <span className={`verified ${row.recommended ? "recommended" : ""}`}>{row.recommended ? "1순위 추천" : "검증됨"}</span>
+              </button>
+            ))}
+            <button className="primary wide" onClick={onCreate}>이 조건으로 라이딩 만들기</button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="page course-explorer">
+      <span className="eyebrow">빠른 코스 탐색</span>
+      <h1>주변 자전거 코스 찾기</h1>
+      <p className="sub">로그인이나 라이딩 생성 없이 출발지 주변의 거리·고도 검증 코스를 확인하세요.</p>
+      <form onSubmit={async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const startName = String(form.get("exploreStart") ?? "");
+        const lat = Number(form.get("exploreStartLat"));
+        const lng = Number(form.get("exploreStartLng"));
+        if (!startName || !Number.isFinite(lat) || !Number.isFinite(lng)) return setError("출발지를 검색한 뒤 정확한 장소를 선택해 주세요.");
+        setLoading(true); setError("");
+        try {
+          setCandidates(await requestCourseCandidates({ start: { lat, lng }, startName, distanceKm: Number(form.get("distanceKm")), uphill: String(form.get("uphill")) as "low" | "medium" | "high", tripType }));
+          void trackProductEvent("course_explore").catch(() => undefined);
+          setSelected(0);
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : "코스를 탐색하지 못했습니다.");
+        } finally { setLoading(false); }
+      }}>
+        <PlacePicker name="exploreStart" label="어디에서 출발하나요?" placeholder="역·공원·정확한 장소명 검색" />
+        <div className="explore-options">
+          <label>희망 거리<input name="distanceKm" type="number" min="5" max="200" defaultValue="30" required /><small>km</small></label>
+          <label>업힐 수준<select name="uphill" defaultValue="medium"><option value="low">평지 위주 · 약 4m/km</option><option value="medium">균형 · 약 10m/km</option><option value="high">도전 · 약 19m/km</option></select></label>
+        </div>
+        <fieldset><legend>코스 형태</legend><div className="segmented"><button type="button" className={tripType === "round" ? "active" : ""} onClick={() => setTripType("round")}>왕복·순환</button><button type="button" className={tripType === "oneway" ? "active" : ""} onClick={() => setTripType("oneway")}>편도</button></div></fieldset>
+        <article className="recommendation-preview"><b>어떻게 추천하나요?</b><p>거리 오차 70% + km당 상승고도 오차 30%를 합산합니다. 계산된 3개 중 오차 점수가 가장 낮은 코스를 1순위로 표시합니다.</p></article>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="primary wide" disabled={loading}>{loading ? "자전거 경로와 고도 분석 중…" : "주변 코스 3개 탐색"}</button>
+      </form>
     </section>
   );
 }
@@ -1594,9 +1783,15 @@ function CreateRide({
         String(form.get("description") ?? ""),
       );
       if (moderationError) throw new Error(moderationError);
-      const place = await geocodePlace(String(form.get("startName")));
+      const selectedStart = {
+        name: String(form.get("startName") ?? ""),
+        lat: Number(form.get("startNameLat")),
+        lng: Number(form.get("startNameLng")),
+      };
+      if (!selectedStart.name || !Number.isFinite(selectedStart.lat) || !Number.isFinite(selectedStart.lng))
+        throw new Error("출발지를 검색한 뒤 정확한 장소를 선택해 주세요.");
       const metadata: Partial<RidePlanInput> = {
-        startName: place.name,
+        startName: selectedStart.name,
         startsAt: startsAtFrom(form),
         paceKmh: Number(form.get("paceKmh")),
         capacity: solo ? 1 : Number(form.get("capacity")) + 1,
@@ -1605,8 +1800,8 @@ function CreateRide({
       setDraft(metadata);
       sessionStorage.setItem("ridemate-create-draft", JSON.stringify(metadata));
       const result = await requestCourseCandidates({
-        start: { lat: place.lat, lng: place.lng },
-        startName: place.name,
+        start: { lat: selectedStart.lat, lng: selectedStart.lng },
+        startName: selectedStart.name,
         distanceKm: Number(form.get("distanceKm")),
         uphill: String(form.get("uphill")) as "low" | "medium" | "high",
         tripType,
@@ -1645,13 +1840,13 @@ function CreateRide({
       const routed =
         uploaded ??
         (await (async () => {
-          const [start, end] = await Promise.all([
-            geocodePlace(String(form.get("manualStart"))),
-            geocodePlace(String(form.get("manualEnd"))),
-          ]);
+          const start = { lat: Number(form.get("manualStartLat")), lng: Number(form.get("manualStartLng")) };
+          const end = { lat: Number(form.get("manualEndLat")), lng: Number(form.get("manualEndLng")) };
+          if (!String(form.get("manualStart")) || !String(form.get("manualEnd")) || !Number.isFinite(start.lat) || !Number.isFinite(start.lng) || !Number.isFinite(end.lat) || !Number.isFinite(end.lng))
+            throw new Error("출발지와 도착지를 검색 결과에서 각각 선택해 주세요.");
           return requestManualRoute(
-            { lat: start.lat, lng: start.lng },
-            { lat: end.lat, lng: end.lng },
+            start,
+            end,
           );
         })());
       const stops = await searchCoursePois(routed.coordinates).catch(()=>[] as Stop[]);
@@ -1781,14 +1976,7 @@ function CreateRide({
             <b>AI를 사용하지 않습니다</b>
             <p>전국 OSM 자전거 가능 도로망에서 여러 방향을 탐색하고, ORS 실측 거리·고도와 희망 업힐 조건을 점수화합니다.</p>
           </article>
-          <label>
-            출발 지점
-            <input
-              name="startName"
-              required
-              placeholder="예: 여의나루역, 광나루 자전거공원"
-            />
-          </label>
+          <PlacePicker name="startName" label="출발 지점" placeholder="역·공원·정확한 장소명 검색" />
           <div className="two distance-row">
             <label>
               희망 거리
@@ -1864,22 +2052,8 @@ function CreateRide({
               }
             />
           </label>
-          <label>
-            출발 지점
-            <input
-              name="manualStart"
-              required
-              placeholder="출발 장소를 입력하세요"
-            />
-          </label>
-          <label>
-            도착 지점
-            <input
-              name="manualEnd"
-              required
-              placeholder="도착 장소를 입력하세요"
-            />
-          </label>
+          <PlacePicker name="manualStart" label="출발 지점" placeholder="출발 장소 검색 후 선택" />
+          <PlacePicker name="manualEnd" label="도착 지점" placeholder="도착 장소 검색 후 선택" />
           <div className="two">
             <label>
               예상 거리
@@ -2594,7 +2768,7 @@ type InstallPromptEvent = Event & {
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     const view = new URLSearchParams(window.location.search).get("view");
-    return ["home", "search", "create", "my", "profile"].includes(String(view))
+    return ["home", "search", "courses", "create", "my", "profile"].includes(String(view))
       ? (view as Tab)
       : "home";
   });
@@ -2721,6 +2895,8 @@ export default function App() {
     }} />
   ) : tab === "create" ? (
     <CreateRide onCreated={() => setTab("my")} onLogin={() => setTab("profile")} />
+  ) : tab === "courses" ? (
+    <CourseExplorer onCreate={() => setTab("create")} />
   ) : tab === "my" ? (
     <MyRides onLogin={() => setTab("profile")} onCreate={() => setTab("create")} />
   ) : tab === "profile" ? (
@@ -2907,6 +3083,7 @@ export default function App() {
             [
               ["home", "홈"],
               ["search", "탐색"],
+              ["courses", "코스"],
               ["create", "만들기"],
               ["my", "내 라이딩"],
               ["profile", "프로필"],
@@ -2914,13 +3091,15 @@ export default function App() {
           ).map(([id, label]) => (              <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={tab === id ? "current" : ""}
+                className={`${tab === id ? "current" : ""} ${id === "create" ? "create-nav" : ""}`}
                 aria-current={tab === id ? "page" : undefined}
               >
               {id === "create" ? (
                 <Plus size={22} />
               ) : id === "search" ? (
                 <Search size={21} />
+              ) : id === "courses" ? (
+                <Compass size={21} />
               ) : id === "profile" ? (
                 <CircleUserRound size={21} />
               ) : id === "my" ? (
@@ -2934,7 +3113,7 @@ export default function App() {
         </nav>
       )}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {selected ? "라이딩 상세 화면으로 이동" : tab === "home" ? "홈 화면" : tab === "search" ? "탐색 화면" : tab === "create" ? "라이딩 만들기 화면" : tab === "my" ? "내 라이딩 화면" : "프로필 화면"}
+        {selected ? "라이딩 상세 화면으로 이동" : tab === "home" ? "홈 화면" : tab === "search" ? "라이딩 탐색 화면" : tab === "courses" ? "코스 탐색 화면" : tab === "create" ? "라이딩 만들기 화면" : tab === "my" ? "내 라이딩 화면" : "프로필 화면"}
       </div>
       {showOnboarding && (
         <div className="modal-backdrop" onClick={finishOnboarding} onKeyDown={(e) => { if (e.key === "Escape") finishOnboarding(); }}>

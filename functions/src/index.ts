@@ -343,6 +343,8 @@ export const recommendCourses = onCall(
         const distanceDifferenceKm = Math.abs(verified.distanceKm - distanceKm);
         const score = distanceDifferenceKm / Math.max(distanceKm, 1) * 70 +
           Math.abs(climbRate - targetClimbRate) / Math.max(targetClimbRate, 1) * 30;
+        const distanceMatchPercent = Math.max(0, 100 - distanceDifferenceKm / Math.max(distanceKm, 1) * 100);
+        const uphillMatchPercent = Math.max(0, 100 - Math.abs(climbRate - targetClimbRate) / Math.max(targetClimbRate, 1) * 100);
         const intensity = climbRate < 7 ? "완만한" : climbRate < 15 ? "균형" : "업힐";
         return {
           id: `candidate-${index + 1}`,
@@ -354,6 +356,14 @@ export const recommendCourses = onCall(
           distanceDifferenceKm:
             Math.round(distanceDifferenceKm * 10) / 10,
           score: Math.round(score * 10) / 10,
+          criteria: {
+            distanceWeight: 70,
+            uphillWeight: 30,
+            targetDistanceKm: distanceKm,
+            targetClimbRate,
+            distanceMatchPercent: Math.round(distanceMatchPercent),
+            uphillMatchPercent: Math.round(uphillMatchPercent),
+          },
           verified: true,
         };
       }),
@@ -1385,6 +1395,7 @@ export const trackProductEvent = onCall({ region }, async (request) => {
       "search",
       "ride_view",
       "ride_join",
+      "course_explore",
       "course_created",
       "install_prompt",
     ].includes(name)

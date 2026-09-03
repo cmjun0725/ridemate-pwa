@@ -1,4 +1,4 @@
-const CACHE = "ridemate-shell-v8";
+const CACHE = "ridemate-shell-v9";
 const ASSETS = [
   "./",
   "./offline.html",

@@ -3,6 +3,13 @@ import type { Stop } from "./types";
 
 let kakaoPromise: Promise<any> | undefined;
 
+export type PlaceSearchResult = Coordinate & {
+  id: string;
+  name: string;
+  address: string;
+  category: string;
+};
+
 export function loadKakaoMaps() {
   if (kakaoPromise) return kakaoPromise;
   kakaoPromise = new Promise((resolve, reject) => {
@@ -93,6 +100,42 @@ export async function geocodePlace(
           name: results[0].place_name,
         });
       },
+    );
+  });
+}
+
+export async function searchPlaces(query: string): Promise<PlaceSearchResult[]> {
+  const normalized = query.trim();
+  if (normalized.length < 2) return [];
+  const kakao = await loadKakaoMaps();
+  return new Promise((resolve) => {
+    const places = new kakao.maps.services.Places();
+    places.keywordSearch(
+      normalized,
+      (
+        results: Array<{
+          id: string;
+          place_name: string;
+          road_address_name?: string;
+          address_name?: string;
+          category_group_name?: string;
+          category_name?: string;
+          y: string;
+          x: string;
+        }>,
+        status: string,
+      ) => resolve(
+        status === kakao.maps.services.Status.OK
+          ? results.slice(0, 7).map((row) => ({
+              id: row.id,
+              name: row.place_name,
+              address: row.road_address_name || row.address_name || "주소 정보 없음",
+              category: row.category_group_name || row.category_name?.split(" > ").at(-1) || "장소",
+              lat: Number(row.y),
+              lng: Number(row.x),
+            }))
+          : [],
+      ),
     );
   });
 }

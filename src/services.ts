@@ -231,6 +231,7 @@ export const trackProductEvent = (
     | "search"
     | "ride_view"
     | "ride_join"
+    | "course_explore"
     | "course_created"
     | "install_prompt",
 ) => callable<{ name: string }, { ok: boolean }>("trackProductEvent", { name });

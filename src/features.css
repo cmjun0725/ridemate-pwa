@@ -645,7 +645,8 @@ legend {
   }
   .filter-bar select,
   .quick-filters button,
-  .detail-actions button {
+  .detail-actions button,
+  .stop-editor label {
     background: #142720;
     color: #dce9e4;
     border-color: #294239;
@@ -656,6 +657,10 @@ legend {
   .section-title small,
   .ride-estimate { color: #aebdb7; }
   .ride-estimate b { color: #72d4b2; }
+  .stop-editor > p,
+  .stop-editor small { color: #adbbb6; }
+  .live-rider-list span { background: #2b2442; color: #c6b9df; }
+  .live-rider-list b { color: #d8caff; }
   .create-page > form .notice,
   .route-method,
   .segmented {

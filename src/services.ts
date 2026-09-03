@@ -1,6 +1,6 @@
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
-import type { ClimbSegment, Coordinate, ElevationPoint, Ride, RouteCandidate, Stop } from "./types";
+import type { ClimbSegment, Coordinate, ElevationPoint, LiveLocation, Ride, RouteCandidate, Stop } from "./types";
 
 export async function requestCourseCandidates(input: {
   start: Coordinate;
@@ -202,6 +202,16 @@ export const updateLiveLocation = (input: {
   lng?: number;
   active: boolean;
 }) => callable<typeof input, { ok: boolean }>("updateLiveLocation", input);
+export const listRideLiveLocations = (rideId: string) =>
+  callable<{ rideId: string }, { locations: LiveLocation[] }>(
+    "listRideLiveLocations",
+    { rideId },
+  ).then((result) => result.locations);
+export const updateCourseStops = (rideId: string, selectedStopIds: string[]) =>
+  callable<{ rideId: string; selectedStopIds: string[] }, { ok: boolean }>(
+    "updateCourseStops",
+    { rideId, selectedStopIds },
+  );
 export const getRideWeather = (coordinate: Coordinate) =>
   callable<
     Coordinate,

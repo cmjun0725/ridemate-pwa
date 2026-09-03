@@ -434,6 +434,8 @@ nav button:nth-child(3) {
   height: 44px;
   margin-top: 17px;
 }
+.rider-location-marker { width: 34px; height: 34px; display: grid; place-items: center; border: 3px solid #fff; border-radius: 50%; background: #6a4bc4; color: #fff; box-shadow: 0 4px 12px #24165755; font-size: 12px; font-weight: 900; }
+.live-rider-count { position: absolute; top: 44px; right: 10px; z-index: 2; padding: 6px 8px; border-radius: 9px; background: #6a4bc4e8; color: #fff; font-size: 9px; font-weight: 800; }
 .detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0 16px; }
 .detail-actions button { min-height: 46px; padding: 9px 10px; border: 1px solid #dce6e0; border-radius: 12px; background: #fff; color: #42554d; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; font-weight: 700; }
 .detail-actions svg { width: 17px; }
@@ -567,6 +569,20 @@ select {
   color: #66736d;
   min-height: 44px;
 }
+.info-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.info-title-row h2 { margin: 0; }
+.info-title-row > span { color: #6a4bc4; font-size: 11px; font-weight: 800; }
+.stop-editor { display: grid; gap: 8px; margin-top: 12px; }
+.stop-editor > p { margin: 0 0 3px; color: #68766f; font-size: 11px; }
+.stop-editor label { display: grid; grid-template-columns: 22px 22px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 48px; padding: 8px 10px; border: 1px solid #dfe7e2; border-radius: 11px; background: #fff; cursor: pointer; }
+.stop-editor input { width: 18px; height: 18px; accent-color: #0d745a; }
+.stop-editor b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.stop-editor small { color: #75827c; font-size: 9px; white-space: nowrap; }
+.nearby-facilities { margin-top: 12px; }
+.nearby-facilities summary { min-height: 44px; display: flex; align-items: center; color: #0d745a; cursor: pointer; font-size: 12px; font-weight: 800; }
+.live-rider-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.live-rider-list span { display: grid; gap: 2px; min-width: 100px; padding: 9px 11px; border-radius: 10px; background: #f0ecfb; color: #66557d; font-size: 9px; }
+.live-rider-list b { color: #472c82; font-size: 11px; }
 .segmented .active {
   background: #fff;
   border-radius: 9px;

@@ -25,6 +25,12 @@ export interface Stop {
   distanceFromRouteM?: number;
   selected?: boolean;
 }
+export interface LiveLocation {
+  userId: string;
+  name: string;
+  coordinate: Coordinate;
+  updatedAt?: string;
+}
 export interface Course {
   id: string;
   title: string;

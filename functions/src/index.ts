@@ -1270,18 +1270,16 @@ export const updateLiveLocation = onCall({ region }, async (request) => {
     lng?: number;
     active?: boolean;
   };
-  if (
-    !rideId ||
-    !(
-      await db
-        .collection("rideMembers")
-        .doc(`${rideId}_${request.auth!.uid}`)
-        .get()
-    ).exists
-  )
+  const [membership, ride] = rideId
+    ? await Promise.all([
+        db.collection("rideMembers").doc(`${rideId}_${request.auth!.uid}`).get(),
+        db.collection("rides").doc(rideId).get(),
+      ])
+    : [null, null];
+  if (!rideId || !membership?.exists || !ride?.exists || (active !== false && ride.data()?.status !== "진행중"))
     throw new HttpsError(
       "permission-denied",
-      "참여 중인 라이딩에서만 위치를 공유할 수 있습니다.",
+      "진행 중인 라이딩 참여자만 위치를 공유할 수 있습니다.",
     );
   const ref = db
     .collection("liveLocations")
@@ -1299,6 +1297,49 @@ export const updateLiveLocation = onCall({ region }, async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
     });
   }
+  return { ok: true };
+});
+
+export const listRideLiveLocations = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const rideId = String((request.data as { rideId?: string }).rideId ?? "");
+  if (!rideId) throw new HttpsError("invalid-argument", "라이딩 정보가 필요합니다.");
+  const [membership, ride] = await Promise.all([
+    db.collection("rideMembers").doc(`${rideId}_${request.auth!.uid}`).get(),
+    db.collection("rides").doc(rideId).get(),
+  ]);
+  if (!membership.exists || !ride.exists || ride.data()?.status !== "진행중")
+    throw new HttpsError("permission-denied", "해당 라이딩 참여자만 위치를 확인할 수 있습니다.");
+  const locations = await db.collection("liveLocations").where("rideId", "==", rideId).limit(50).get();
+  const active = locations.docs.filter((row) => (row.data().expiresAt?.toMillis?.() ?? 0) > Date.now());
+  const profiles = await Promise.all(active.map((row) => db.collection("users").doc(String(row.data().userId)).get()));
+  return {
+    locations: active.map((row, index) => ({
+      userId: String(row.data().userId),
+      name: String(profiles[index].data()?.displayName ?? "라이더"),
+      coordinate: { lat: Number(row.data().lat), lng: Number(row.data().lng) },
+      updatedAt: row.data().updatedAt?.toDate?.()?.toISOString?.() ?? null,
+    })),
+  };
+});
+
+export const updateCourseStops = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const { rideId, selectedStopIds } = request.data as { rideId?: string; selectedStopIds?: string[] };
+  if (!rideId || !Array.isArray(selectedStopIds) || selectedStopIds.length > 10)
+    throw new HttpsError("invalid-argument", "정차 지점은 최대 10곳까지 선택할 수 있습니다.");
+  const ride = await db.collection("rides").doc(rideId).get();
+  if (!ride.exists || ride.data()?.hostId !== request.auth!.uid)
+    throw new HttpsError("permission-denied", "방장만 정차 지점을 확정할 수 있습니다.");
+  const courseRef = db.collection("courses").doc(String(ride.data()?.courseId ?? ""));
+  const course = await courseRef.get();
+  if (!course.exists) throw new HttpsError("not-found", "코스를 찾을 수 없습니다.");
+  const selected = new Set(selectedStopIds.map(String));
+  const stops = Array.isArray(course.data()?.stops) ? course.data()!.stops : [];
+  await courseRef.update({
+    stops: stops.map((stop: { id?: string }) => ({ ...stop, selected: selected.has(String(stop.id)) })),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return { ok: true };
 });
 

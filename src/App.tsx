@@ -46,6 +46,7 @@ import {
   listFavoriteRides,
   listMyRidePlans,
   listPublicRides,
+  listRideLiveLocations,
   listRideMessages,
   reportUser,
   repairRideCourse,
@@ -58,12 +59,13 @@ import {
   startPublicRide,
   trackProductEvent,
   updateLiveLocation,
+  updateCourseStops,
   type RideMessage,
   type RidePlanInput,
   type RiderSettings,
   type StoredRidePlan,
 } from "./services";
-import type { ClimbSegment, Coordinate, ElevationPoint, Ride, RouteCandidate, Stop } from "./types";
+import type { ClimbSegment, Coordinate, ElevationPoint, LiveLocation, Ride, RouteCandidate, Stop } from "./types";
 
 type Tab = "home" | "search" | "create" | "my" | "profile";
 const fmt = (value: string) =>
@@ -83,6 +85,7 @@ const formatDuration = (minutes: number) =>
 const routeColors = ["#087458", "#ef7d5f", "#4e65c5"];
 const emptyStops: Stop[] = [];
 const emptyCoordinates: Coordinate[] = [];
+const emptyLocations: LiveLocation[] = [];
 const facilityMeta = {
   편의점: { icon: "🏪", className: "convenience" },
   화장실: { icon: "🚻", className: "restroom" },
@@ -271,6 +274,7 @@ function CourseMap({
   label = "코스 지도",
   stops = emptyStops,
   climbSegments = [],
+  liveLocations = emptyLocations,
   missingRouteMessage = "이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.",
 }: {
   routes: Coordinate[][];
@@ -278,6 +282,7 @@ function CourseMap({
   label?: string;
   stops?: Stop[];
   climbSegments?: ClimbSegment[];
+  liveLocations?: LiveLocation[];
   missingRouteMessage?: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -376,6 +381,19 @@ function CourseMap({
             zIndex: stop.kind === "정비소" ? 5 : 4,
           }).setMap(map);
         });
+        liveLocations.forEach((location) => {
+          const marker = document.createElement("div");
+          marker.className = "rider-location-marker";
+          marker.setAttribute("aria-label", `${location.name}의 최근 위치`);
+          marker.title = `${location.name} · 최근 공유 위치`;
+          marker.textContent = location.name.slice(0, 1);
+          new kakao.maps.CustomOverlay({
+            position: new kakao.maps.LatLng(location.coordinate.lat, location.coordinate.lng),
+            content: marker,
+            yAnchor: 1.15,
+            zIndex: 8,
+          }).setMap(map);
+        });
         map.setBounds(bounds);
         if (active) setStatus("ready");
       })
@@ -392,7 +410,7 @@ function CourseMap({
     return () => {
       active = false;
     };
-  }, [routes, selected, stops, climbSegments, attempt, missingRouteMessage]);
+  }, [routes, selected, stops, climbSegments, liveLocations, attempt, missingRouteMessage]);
   const hasRoute = routes.some((route) => route.length);
   return (
     <div
@@ -445,6 +463,7 @@ function CourseMap({
               <i className="repair">🔧 정비점</i>
             </span>
           )}
+          {liveLocations.length > 0 && <span className="live-rider-count">● 위치 공유 {liveLocations.length}명</span>}
         </>
       )}
     </div>
@@ -575,6 +594,10 @@ function RideDetail({
   }, [chat.length]);
   const [favorite, setFavorite] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [liveLocations, setLiveLocations] = useState<LiveLocation[]>([]);
+  const locationWatchRef = useRef<number | null>(null);
+  const locationTimerRef = useRef<number | null>(null);
+  const lastLocationSentRef = useRef(0);
   const [weather, setWeather] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const storedDetailRoute = ride.course.coordinates ?? emptyCoordinates;
@@ -582,11 +605,22 @@ function RideDetail({
   const [detailRouteRecovery, setDetailRouteRecovery] = useState<"idle" | "loading" | "error">("idle");
   const [detailRouteMessage, setDetailRouteMessage] = useState("이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.");
   const [detailStops, setDetailStops] = useState(ride.course.stops ?? emptyStops);
+  const [editingStops, setEditingStops] = useState(false);
+  const [selectedStopIds, setSelectedStopIds] = useState<string[]>(
+    () => (ride.course.stops ?? []).filter((stop) => stop.selected).map((stop) => stop.id),
+  );
+  const [savingStops, setSavingStops] = useState(false);
   const detailRoute = storedDetailRoute.length >= 2 ? storedDetailRoute : recoveredDetailRoute;
   const detailMapRoutes = useMemo(
     () => [detailRoute],
     [detailRoute],
   );
+  useEffect(() => {
+    const storedStops = ride.course.stops ?? [];
+    if (!storedStops.length) return;
+    setDetailStops(storedStops);
+    setSelectedStopIds(storedStops.filter((stop) => stop.selected).map((stop) => stop.id));
+  }, [ride.course.stops]);
   useEffect(() => {
     if (storedDetailRoute.length >= 2 || recoveredDetailRoute.length >= 2) return;
     const startName = String(ride.course.startName ?? "").trim();
@@ -671,6 +705,26 @@ function RideDetail({
     };
   }, [joined, ride.id]);
   useEffect(() => {
+    if (!joined || ride.status !== "진행중") {
+      setLiveLocations([]);
+      return;
+    }
+    let active = true;
+    const refresh = () => void listRideLiveLocations(ride.id)
+      .then((locations) => active && setLiveLocations(locations))
+      .catch(() => undefined);
+    refresh();
+    const timer = window.setInterval(refresh, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [joined, ride.id, ride.status]);
+  useEffect(() => () => {
+    if (locationWatchRef.current != null) navigator.geolocation.clearWatch(locationWatchRef.current);
+    if (locationTimerRef.current != null) window.clearTimeout(locationTimerRef.current);
+  }, []);
+  useEffect(() => {
     const point = ride.course.coordinates?.[0];
     if (point)
       void getRideWeather(point)
@@ -725,15 +779,23 @@ function RideDetail({
   };
   const toggleLocation = async () => {
     if (sharing) {
+      if (locationWatchRef.current != null) navigator.geolocation.clearWatch(locationWatchRef.current);
+      if (locationTimerRef.current != null) window.clearTimeout(locationTimerRef.current);
+      locationWatchRef.current = null;
+      locationTimerRef.current = null;
       await updateLiveLocation({ rideId: ride.id, active: false });
       setSharing(false);
+      setLiveLocations((rows) => rows.filter((row) => row.userId !== auth?.currentUser?.uid));
+      setMessage("안전 위치 공유를 종료했습니다.");
       return;
     }
     if (!navigator.geolocation)
       return setMessage("이 기기에서는 위치 공유를 지원하지 않습니다.");
-    navigator.geolocation.getCurrentPosition(
+    locationWatchRef.current = navigator.geolocation.watchPosition(
       async (position) => {
+        if (Date.now() - lastLocationSentRef.current < 20000) return;
         try {
+          lastLocationSentRef.current = Date.now();
           await updateLiveLocation({
             rideId: ride.id,
             lat: position.coords.latitude,
@@ -741,7 +803,16 @@ function RideDetail({
             active: true,
           });
           setSharing(true);
-          setMessage("15분 동안 참여자 안전 확인용 위치를 공유합니다.");
+          setMessage("15분 동안 참여자에게 현재 위치를 공유합니다.");
+          if (locationTimerRef.current == null)
+            locationTimerRef.current = window.setTimeout(() => {
+              if (locationWatchRef.current != null) navigator.geolocation.clearWatch(locationWatchRef.current);
+              locationWatchRef.current = null;
+              locationTimerRef.current = null;
+              setSharing(false);
+              setMessage("15분이 지나 안전 위치 공유를 자동 종료했습니다.");
+              void updateLiveLocation({ rideId: ride.id, active: false });
+            }, 15 * 60 * 1000);
         } catch (error) {
           setMessage(
             error instanceof Error
@@ -754,7 +825,7 @@ function RideDetail({
         setMessage(
           "위치 권한이 거부되었습니다. 브라우저 설정에서 허용할 수 있어요.",
         ),
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 },
     );
   };
   const targetId = ride.hostId ?? ride.host?.id;
@@ -809,6 +880,7 @@ function RideDetail({
           label={ride.course.title}
           stops={detailStops}
           climbSegments={ride.course.climbSegments ?? []}
+          liveLocations={liveLocations}
           missingRouteMessage={detailRouteMessage}
         />
       )}
@@ -992,13 +1064,85 @@ function RideDetail({
         {ride.description && <p>{ride.description}</p>}
       </article>
       <article className="info">
-        <h2>코스 정차 지점·편의시설</h2>
-        {stops.length ? (
-          <FacilityList stops={stops} />
+        <div className="info-title-row">
+          <h2>정차 지점</h2>
+          {isHost && stops.length > 0 && (
+            <button className="text-button" onClick={() => setEditingStops((value) => !value)}>
+              {editingStops ? "편집 취소" : "정차 지점 편집"}
+            </button>
+          )}
+        </div>
+        {editingStops ? (
+          <div className="stop-editor">
+            <p>참여자 대화에서 협의한 장소를 최대 10곳까지 선택하세요.</p>
+            {stops.map((stop) => (
+              <label key={stop.id}>
+                <input
+                  type="checkbox"
+                  checked={selectedStopIds.includes(stop.id)}
+                  onChange={(event) => setSelectedStopIds((current) =>
+                    event.target.checked
+                      ? current.length < 10 ? [...current, stop.id] : current
+                      : current.filter((id) => id !== stop.id),
+                  )}
+                />
+                <span>{facilityMeta[stop.kind].icon}</span>
+                <b>{stop.name}</b>
+                <small>{stop.distanceFromRouteM != null ? `코스에서 ${stop.distanceFromRouteM}m` : stop.kind}</small>
+              </label>
+            ))}
+            <button
+              className="primary wide"
+              disabled={savingStops}
+              onClick={async () => {
+                setSavingStops(true);
+                try {
+                  await updateCourseStops(ride.id, selectedStopIds);
+                  setDetailStops((current) => current.map((stop) => ({ ...stop, selected: selectedStopIds.includes(stop.id) })));
+                  setEditingStops(false);
+                  setMessage(`${selectedStopIds.length}곳을 정차 지점으로 확정했습니다.`);
+                } catch (error) {
+                  setMessage(error instanceof Error ? error.message : "정차 지점을 저장하지 못했습니다.");
+                } finally {
+                  setSavingStops(false);
+                }
+              }}
+            >
+              {savingStops ? "저장 중…" : `선택한 ${selectedStopIds.length}곳 확정`}
+            </button>
+          </div>
         ) : (
-          <p className="muted">아직 확정된 정차 지점이 없습니다.</p>
+          <>
+            {stops.some((stop) => stop.selected) ? (
+              <FacilityList stops={stops.filter((stop) => stop.selected)} />
+            ) : (
+              <p className="muted">아직 확정된 정차 지점이 없습니다.</p>
+            )}
+            {stops.length > 0 && (
+              <details className="nearby-facilities">
+                <summary>코스 주변 추천 시설 {stops.length}곳 보기</summary>
+                <FacilityList stops={stops} />
+              </details>
+            )}
+          </>
         )}
       </article>
+      {ride.status === "진행중" && joined && (
+        <article className="info live-safety-panel">
+          <div className="info-title-row">
+            <h2>참여자 안전 위치</h2>
+            <span>{liveLocations.length}명 공유 중</span>
+          </div>
+          <p className="muted">위치는 참여자에게만 보이며 마지막 전송 후 15분 뒤 만료됩니다.</p>
+          {liveLocations.length > 0 && (
+            <div className="live-rider-list">
+              {liveLocations.map((location) => (
+                <span key={location.userId}><b>{location.name}</b>{location.updatedAt ? `${Math.max(0, Math.floor((Date.now() - new Date(location.updatedAt).getTime()) / 60000))}분 전` : "방금 전"}</span>
+              ))}
+            </div>
+          )}
+        </article>
+      )}
       <article className="info">
         <h2>참여 라이더 {ride.memberCount ?? members.length}명</h2>
         <div className="avatars">

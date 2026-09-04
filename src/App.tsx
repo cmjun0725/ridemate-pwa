@@ -2312,7 +2312,7 @@ function ProfileTools() {
             />
           </label>
         </div>
-        <h2>알림 설정</h2>
+        <h2 id="notification-settings" tabIndex={-1}>알림 설정</h2>
         <label className="switch-row">
           <input
             name="notifyRide"
@@ -3109,13 +3109,32 @@ export default function App() {
         >
           RIDEMATE<span>라이딩 메이트</span>
         </button>
-        <button
-          className="bell"
-          aria-label="알림 설정"
-          onClick={() => setTab("profile")}
-        >
-          <Bell size={20} />
-        </button>
+        <div className="header-actions">
+          <button
+            className="bell"
+            aria-label="알림 설정"
+            onClick={() => {
+              setSelected(null);
+              setTab("profile");
+              window.setTimeout(() => document.getElementById("notification-settings")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+            }}
+          >
+            <Bell size={20} />
+          </button>
+          <button
+            className={`profile-shortcut ${tab === "profile" ? "current" : ""}`}
+            aria-label="프로필"
+            aria-current={tab === "profile" ? "page" : undefined}
+            onClick={() => {
+              setSelected(null);
+              setTab("profile");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          >
+            <CircleUserRound size={21} />
+            <span>프로필</span>
+          </button>
+        </div>
       </header>
       {installPrompt && (
         <aside className="install-banner" role="complementary" aria-label="앱 설치 안내">
@@ -3151,10 +3170,9 @@ export default function App() {
             [
               ["home", "홈"],
               ["search", "탐색"],
-              ["courses", "코스"],
               ["create", "만들기"],
+              ["courses", "코스"],
               ["my", "내 라이딩"],
-              ["profile", "프로필"],
             ] as [Tab, string][]
           ).map(([id, label]) => (              <button
                 key={id}
@@ -3168,8 +3186,6 @@ export default function App() {
                 <Search size={21} />
               ) : id === "courses" ? (
                 <Compass size={21} />
-              ) : id === "profile" ? (
-                <CircleUserRound size={21} />
               ) : id === "my" ? (
                 <CalendarDays size={21} />
               ) : (

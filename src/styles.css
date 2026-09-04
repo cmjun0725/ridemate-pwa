@@ -111,6 +111,30 @@ header {
   border-radius: 12px;
   background: #fff3ef;
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.profile-shortcut {
+  min-width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border-radius: 12px;
+  color: #52645d;
+  background: #edf4f0;
+  font-size: 11px;
+  font-weight: 700;
+}
+.profile-shortcut span { display: none; }
+.profile-shortcut.current {
+  color: #087458;
+  background: #dff1e9;
+}
 .page {
   padding: 10px 20px 24px;
   padding-bottom: calc(24px + 88px);
@@ -674,6 +698,7 @@ select {
   .logo { font-size: 18px; }
   .logo span { font-size: 9px; }
   .bell { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: #fff3ef; }
+  .profile-shortcut span { display: inline; }
   nav {
     position: fixed;
     inset: 0 auto auto 50%;

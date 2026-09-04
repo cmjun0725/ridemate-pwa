@@ -33,13 +33,16 @@ export type RidePlanInput = {
   title: string;
   purpose: "group" | "solo";
   startName: string;
+  startAddress?: string;
   endName?: string;
+  endAddress?: string;
   startsAt?: string;
   distanceKm: number;
   elevationM?: number;
   paceKmh?: number;
   capacity?: number;
   description?: string;
+  meetingNote?: string;
   coordinates?: Coordinate[];
   elevationProfile?: Array<{ distanceKm: number; elevationM: number }>;
   climbSegments?: ClimbSegment[];
@@ -56,7 +59,9 @@ export type StoredRidePlan = {
   createdAt?: string;
   course: {
     startName?: string;
+    startAddress?: string;
     endName?: string;
+    endAddress?: string;
     distanceKm?: number;
     elevationM?: number;
     coordinates?: Coordinate[];

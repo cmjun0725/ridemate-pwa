@@ -341,10 +341,13 @@ export const recommendCourses = onCall(
         const climbRate =
           verified.elevationM / Math.max(verified.distanceKm, 1);
         const distanceDifferenceKm = Math.abs(verified.distanceKm - distanceKm);
-        const score = distanceDifferenceKm / Math.max(distanceKm, 1) * 70 +
-          Math.abs(climbRate - targetClimbRate) / Math.max(targetClimbRate, 1) * 30;
-        const distanceMatchPercent = Math.max(0, 100 - distanceDifferenceKm / Math.max(distanceKm, 1) * 100);
-        const uphillMatchPercent = Math.max(0, 100 - Math.abs(climbRate - targetClimbRate) / Math.max(targetClimbRate, 1) * 100);
+        const distanceErrorPercent = distanceDifferenceKm / Math.max(distanceKm, 1) * 100;
+        const uphillErrorPercent = Math.abs(climbRate - targetClimbRate) / Math.max(targetClimbRate, 1) * 100;
+        const weightedDistanceError = distanceErrorPercent * 0.7;
+        const weightedUphillError = uphillErrorPercent * 0.3;
+        const score = weightedDistanceError + weightedUphillError;
+        const distanceMatchPercent = Math.max(0, 100 - distanceErrorPercent);
+        const uphillMatchPercent = Math.max(0, 100 - uphillErrorPercent);
         const intensity = climbRate < 7 ? "완만한" : climbRate < 15 ? "균형" : "업힐";
         return {
           id: `candidate-${index + 1}`,
@@ -363,6 +366,10 @@ export const recommendCourses = onCall(
             targetClimbRate,
             distanceMatchPercent: Math.round(distanceMatchPercent),
             uphillMatchPercent: Math.round(uphillMatchPercent),
+            distanceErrorPercent: Math.round(distanceErrorPercent * 10) / 10,
+            uphillErrorPercent: Math.round(uphillErrorPercent * 10) / 10,
+            weightedDistanceError: Math.round(weightedDistanceError * 10) / 10,
+            weightedUphillError: Math.round(weightedUphillError * 10) / 10,
           },
           verified: true,
         };
@@ -596,13 +603,16 @@ export const createRidePlan = onCall({ region }, async (request) => {
     title?: string;
     purpose?: "group" | "solo";
     startName?: string;
+    startAddress?: string;
     endName?: string;
+    endAddress?: string;
     startsAt?: string;
     distanceKm?: number;
     elevationM?: number;
     paceKmh?: number;
     capacity?: number;
     description?: string;
+    meetingNote?: string;
     coordinates?: Point[];
     elevationProfile?: Array<{ distanceKm: number; elevationM: number }>;
     climbSegments?: ClimbSegment[];
@@ -623,7 +633,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
   if (data.purpose === "group" && (!data.startsAt || !Number.isFinite(new Date(data.startsAt).getTime()))) throw new HttpsError("invalid-argument", "함께 라이딩은 출발 날짜와 시간이 필요합니다.");
   if (data.purpose === "group" && new Date(data.startsAt!).getTime() <= Date.now()) throw new HttpsError("invalid-argument", "출발 날짜와 시간은 현재 이후로 설정해 주세요.");
   if (!Number.isFinite(data.paceKmh) || Number(data.paceKmh) < 5 || Number(data.paceKmh) > 60) throw new HttpsError("invalid-argument", "목표 평속은 5~60km/h로 입력해 주세요.");
-  if (hasBlockedRideContent(data.title, data.description))
+  if (hasBlockedRideContent(data.title, data.description, data.meetingNote))
     throw new HttpsError(
       "invalid-argument",
       "라이딩 제목이나 설명에 사용할 수 없는 표현이 포함되어 있습니다.",
@@ -635,7 +645,9 @@ export const createRidePlan = onCall({ region }, async (request) => {
   const course = {
     title: data.title.trim().slice(0, 80),
     startName: data.startName.trim().slice(0, 100),
+    startAddress: String(data.startAddress ?? "").trim().slice(0, 200),
     endName: (data.endName ?? data.startName).trim().slice(0, 100),
+    endAddress: String(data.endAddress ?? "").trim().slice(0, 200),
     distanceKm: data.distanceKm,
     elevationM: Math.max(0, Number(data.elevationM ?? 0)),
     coordinates: (data.coordinates ?? []).filter(isPoint).slice(0, 3000),
@@ -668,6 +680,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
     memberCount: 1,
     status: data.purpose === "solo" ? "계획" : "모집중",
     description: String(data.description ?? "").slice(0, 1000),
+    meetingNote: String(data.meetingNote ?? "").trim().slice(0, 200),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };

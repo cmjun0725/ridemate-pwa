@@ -35,7 +35,9 @@ export interface Course {
   id: string;
   title: string;
   startName: string;
+  startAddress?: string;
   endName: string;
+  endAddress?: string;
   distanceKm: number;
   elevationM: number;
   coordinates: Coordinate[];
@@ -88,6 +90,10 @@ export interface RouteCandidate {
     targetClimbRate: number;
     distanceMatchPercent: number;
     uphillMatchPercent: number;
+    distanceErrorPercent: number;
+    uphillErrorPercent: number;
+    weightedDistanceError: number;
+    weightedUphillError: number;
   };
   verified: boolean;
 }

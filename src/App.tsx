@@ -226,6 +226,7 @@ function PlacePicker({
   const [selected, setSelected] = useState<PlaceSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [touched, setTouched] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (selected || query.trim().length < 2) {
       setResults([]);
@@ -251,6 +252,7 @@ function PlacePicker({
       <div className={`place-input ${selected ? "confirmed" : ""}`}>
         <MapPin size={17} aria-hidden="true" />
         <input
+          ref={inputRef}
           id={`${name}-query`}
           required
           autoComplete="off"
@@ -269,8 +271,25 @@ function PlacePicker({
         {selected ? <CheckCircle2 className="place-confirmed" aria-label="장소 선택 완료" /> : loading ? <span className="place-loading">검색 중</span> : null}
       </div>
       <input type="hidden" name={name} value={selected?.name ?? ""} />
+      <input type="hidden" name={`${name}Address`} value={selected?.address ?? ""} />
       <input type="hidden" name={`${name}Lat`} value={selected?.lat ?? ""} />
       <input type="hidden" name={`${name}Lng`} value={selected?.lng ?? ""} />
+      {selected && (
+        <div className="place-selection" role="status">
+          <span><b>{selected.name}</b><small>{selected.address}</small></span>
+          <button
+            type="button"
+            onClick={() => {
+              setSelected(null);
+              setQuery("");
+              setTouched(false);
+              window.setTimeout(() => inputRef.current?.focus(), 0);
+            }}
+          >
+            장소 변경
+          </button>
+        </div>
+      )}
       {results.length > 0 && (
         <div className="place-results" id={listId} role="listbox" aria-label={`${label} 검색 결과`}>
           {results.map((place) => (
@@ -1119,6 +1138,11 @@ function RideDetail({
           {Math.max(0, ride.capacity - (ride.memberCount ?? members.length))}명<small>남은 자리</small>
         </span>
       </dl>
+      <article className="route-endpoints" aria-label="코스 출발지와 도착지">
+        <span><small>출발</small><b>{ride.course.startName}</b>{ride.course.startAddress && <em>{ride.course.startAddress}</em>}</span>
+        <ChevronRight aria-hidden="true" />
+        <span><small>도착</small><b>{ride.course.endName}</b>{ride.course.endAddress && <em>{ride.course.endAddress}</em>}</span>
+      </article>
       <p className="ride-estimate">
         예상 주행시간 <b>{formatDuration(durationMinutes)}</b>
         <span>휴식·교통 신호 제외</span>
@@ -1148,10 +1172,15 @@ function RideDetail({
       )}
       <article className="info">
         <h2>집합 장소</h2>
-        <p>
+        <p className="meeting-place">
           <MapPin size={17} />
-          {ride.meetingNote || ride.course.startName}
+          <span>
+            <b>{ride.course.startName}</b>
+            {ride.course.startAddress && <small>{ride.course.startAddress}</small>}
+          </span>
         </p>
+        {ride.meetingNote && <p className="meeting-note"><b>상세 안내</b>{ride.meetingNote}</p>}
+        {joined && <small className="meeting-chat-hint">출입구나 정확한 대기 위치는 아래 참여자 대화에서 조율할 수 있어요.</small>}
         {ride.description && <p>{ride.description}</p>}
       </article>
       <article className="info">
@@ -1477,6 +1506,17 @@ function CommonRideFields({ solo }: { solo: boolean }) {
           </label>
         )}
       </div>
+      {!solo && (
+        <label>
+          집합 위치 상세 안내 <span className="optional">선택</span>
+          <input
+            name="meetingNote"
+            maxLength={200}
+            placeholder="예: 공원 남문 자전거 거치대 앞"
+          />
+          <small>선택한 출발지가 기본 집합 장소입니다. 출입구·랜드마크는 적거나 참여자 채팅에서 조율하세요.</small>
+        </label>
+      )}
       <label>
         부가 설명 <span className="optional">선택</span>
         <textarea
@@ -1498,12 +1538,20 @@ function RecommendationBasis({ candidate }: { candidate: RouteCandidate }) {
   return (
     <article className="recommendation-basis" aria-label="추천 선정 기준">
       <div><b>추천 기준</b><span>조건 오차 {candidate.score ?? 0}점 · 낮을수록 적합</span></div>
-      <p>자전거 주행 경로의 실제 거리와 고도를 검증한 뒤 거리 70%, 업힐 30% 비중으로 순위를 정합니다.</p>
+      <p>목표 대비 거리 오차 70%와 km당 상승고도 오차 30%를 합산합니다. 계산된 후보 중 총 오차가 가장 낮은 코스가 1순위입니다.</p>
+      <div className="score-formula" aria-label="추천 점수 계산 내역">
+        <span>거리 오차 {criteria?.distanceErrorPercent ?? 0}% × 0.7 = <b>{criteria?.weightedDistanceError ?? 0}</b></span>
+        <i aria-hidden="true">+</i>
+        <span>업힐 오차 {criteria?.uphillErrorPercent ?? 0}% × 0.3 = <b>{criteria?.weightedUphillError ?? 0}</b></span>
+        <i aria-hidden="true">=</i>
+        <strong>{candidate.score ?? 0}점</strong>
+      </div>
       <div className="criteria-bars">
         <span><i style={{ width: `${criteria?.distanceMatchPercent ?? 0}%` }} /><b>거리 적합도 {criteria?.distanceMatchPercent ?? 0}%</b><small>목표 {criteria?.targetDistanceKm ?? "-"}km · 차이 {candidate.distanceDifferenceKm}km</small></span>
         <span><i style={{ width: `${criteria?.uphillMatchPercent ?? 0}%` }} /><b>업힐 적합도 {criteria?.uphillMatchPercent ?? 0}%</b><small>목표 {criteria?.targetClimbRate ?? "-"}m/km · 실제 {candidate.climbRate}m/km</small></span>
       </div>
       <small>※ 교통 통제·노면 공사·현장 안전 상태는 출발 전 별도로 확인해야 합니다.</small>
+      <small>※ 빨간 업힐: 경사도 2.2% 이상 상승이 180m 이상 이어지고 상승고도 8m 이상인 구간입니다.</small>
     </article>
   );
 }
@@ -1573,13 +1621,16 @@ function CandidateResults({
         title: candidate.title,
         purpose: solo ? "solo" : "group",
         startName,
-        endName: candidate.title,
+        startAddress: metadata.startAddress,
+        endName: metadata.endName ?? candidate.title,
+        endAddress: metadata.endAddress,
         startsAt: metadata.startsAt,
         distanceKm: candidate.distanceKm,
         elevationM: candidate.elevationM,
         paceKmh: metadata.paceKmh,
         capacity: metadata.capacity,
         description: metadata.description,
+        meetingNote: metadata.meetingNote,
         coordinates: candidate.coordinates,
         elevationProfile: candidate.elevationProfile,
         climbSegments: candidate.climbSegments,
@@ -1651,9 +1702,7 @@ function CandidateResults({
             <span
               className={`verified ${candidate.recommended ? "recommended" : ""}`}
             >
-              {candidate.recommended
-                ? "조건 최적 · 추천"
-                : "검증됨"}
+              {candidate.recommended ? "1순위 추천" : `${index + 1}순위`}
             </span>
           </button>
         ))}
@@ -1781,6 +1830,7 @@ function CreateRide({
     try {
       const moderationError = validateRideContent(
         String(form.get("description") ?? ""),
+        String(form.get("meetingNote") ?? ""),
       );
       if (moderationError) throw new Error(moderationError);
       const selectedStart = {
@@ -1792,10 +1842,14 @@ function CreateRide({
         throw new Error("출발지를 검색한 뒤 정확한 장소를 선택해 주세요.");
       const metadata: Partial<RidePlanInput> = {
         startName: selectedStart.name,
+        startAddress: String(form.get("startNameAddress") ?? ""),
+        endName: tripType === "round" ? selectedStart.name : "추천 경로 도착 지점",
+        endAddress: tripType === "round" ? String(form.get("startNameAddress") ?? "") : "",
         startsAt: startsAtFrom(form),
         paceKmh: Number(form.get("paceKmh")),
         capacity: solo ? 1 : Number(form.get("capacity")) + 1,
         description: String(form.get("description") ?? ""),
+        meetingNote: String(form.get("meetingNote") ?? ""),
       };
       setDraft(metadata);
       sessionStorage.setItem("ridemate-create-draft", JSON.stringify(metadata));
@@ -1830,8 +1884,15 @@ function CreateRide({
       const moderationError = validateRideContent(
         String(form.get("title") ?? ""),
         String(form.get("description") ?? ""),
+        String(form.get("meetingNote") ?? ""),
       );
       if (moderationError) throw new Error(moderationError);
+      const manualStartName = String(form.get("manualStart") ?? "");
+      const manualEndName = String(form.get("manualEnd") ?? "");
+      const start = { lat: Number(form.get("manualStartLat")), lng: Number(form.get("manualStartLng")) };
+      const end = { lat: Number(form.get("manualEndLat")), lng: Number(form.get("manualEndLng")) };
+      if (!manualStartName || !manualEndName || !Number.isFinite(start.lat) || !Number.isFinite(start.lng) || !Number.isFinite(end.lat) || !Number.isFinite(end.lng))
+        throw new Error("출발지와 도착지를 검색 결과에서 각각 선택해 주세요.");
       const file =
         form.get("gpx") instanceof File && (form.get("gpx") as File).size
           ? (form.get("gpx") as File)
@@ -1840,10 +1901,6 @@ function CreateRide({
       const routed =
         uploaded ??
         (await (async () => {
-          const start = { lat: Number(form.get("manualStartLat")), lng: Number(form.get("manualStartLng")) };
-          const end = { lat: Number(form.get("manualEndLat")), lng: Number(form.get("manualEndLng")) };
-          if (!String(form.get("manualStart")) || !String(form.get("manualEnd")) || !Number.isFinite(start.lat) || !Number.isFinite(start.lng) || !Number.isFinite(end.lat) || !Number.isFinite(end.lng))
-            throw new Error("출발지와 도착지를 검색 결과에서 각각 선택해 주세요.");
           return requestManualRoute(
             start,
             end,
@@ -1853,8 +1910,10 @@ function CreateRide({
       await createRidePlan({
         title: String(form.get("title")),
         purpose,
-        startName: String(form.get("manualStart")),
-        endName: String(form.get("manualEnd")),
+        startName: manualStartName,
+        startAddress: String(form.get("manualStartAddress") ?? ""),
+        endName: manualEndName,
+        endAddress: String(form.get("manualEndAddress") ?? ""),
         startsAt: startsAtFrom(form),
         distanceKm:
           uploaded?.distanceKm ||
@@ -1864,6 +1923,7 @@ function CreateRide({
         paceKmh: Number(form.get("paceKmh")),
         capacity: solo ? 1 : Number(form.get("capacity")) + 1,
         description: String(form.get("description") ?? ""),
+        meetingNote: String(form.get("meetingNote") ?? ""),
         coordinates: routed.coordinates,
         elevationProfile: routed.elevationProfile,
         climbSegments: (routed as { climbSegments?: ClimbSegment[] }).climbSegments ?? [],
@@ -1993,22 +2053,26 @@ function CreateRide({
           </div>
           <fieldset className="uphill-picker">
             <legend>희망 업힐 정도</legend>
-            <p>코스 1km당 상승고도 목표로 후보를 비교합니다.</p>
+            <p>전체 코스의 ‘누적 상승고도 ÷ 거리’를 기준으로 비교합니다.</p>
             <div>
               <label>
                 <input type="radio" name="uphill" value="low" />
-                <span><b>평지 위주</b><small>약 4m/km · 가볍게</small></span>
+                <span><b>평지 위주</b><small>목표 4m/km · 0~6m/km 권장</small></span>
               </label>
               <label>
                 <input type="radio" name="uphill" value="medium" defaultChecked />
-                <span><b>균형</b><small>약 10m/km · 적당한 업힐</small></span>
+                <span><b>균형</b><small>목표 10m/km · 7~14m/km 권장</small></span>
               </label>
               <label>
                 <input type="radio" name="uphill" value="high" />
-                <span><b>도전</b><small>약 19m/km · 업힐 중심</small></span>
+                <span><b>도전</b><small>목표 19m/km · 15m/km 이상</small></span>
               </label>
             </div>
           </fieldset>
+          <article className="uphill-rule">
+            <b>지도에서 빨간 업힐로 표시하는 기준</b>
+            <p>경사도 2.2% 이상의 상승이 180m 이상 이어지고, 해당 구간에서 8m 이상 올라간 경우입니다. 짧은 완만 구간은 최대 160m까지 같은 업힐로 연결합니다.</p>
+          </article>
           <fieldset>
             <legend>라이딩 유형</legend>
             <div className="segmented">
@@ -2042,6 +2106,10 @@ function CreateRide({
         </form>
       ) : (
         <form onSubmit={submitManual}>
+          <article className="notice manual-guide">
+            <b>출발지와 도착지를 직접 정하세요</b>
+            <p>검색 결과에서 정확한 장소를 선택하면 자전거 경로·거리·상승고도를 자동 계산합니다. 선택 후에도 ‘장소 변경’으로 다시 고를 수 있습니다.</p>
+          </article>
           <label>
             라이딩 제목
             <input

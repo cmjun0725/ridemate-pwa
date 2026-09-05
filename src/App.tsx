@@ -592,21 +592,23 @@ function FacilityList({ stops, loading = false, compact = false }: { stops: Stop
 }
 
 function ElevationChart({ points }: { points: ElevationPoint[] }) {
+  points = points.filter(p => Number.isFinite(p.distanceKm) && Number.isFinite(p.elevationM) && p.distanceKm >= 0).sort((a, b) => a.distanceKm - b.distanceKm);
   if (points.length < 2) return null;
   const width = 420;
   const height = 145;
-  const padX = 12;
+  const padX = 42;
   const padTop = 12;
   const padBottom = 24;
   const min = Math.min(...points.map((point) => point.elevationM));
   const max = Math.max(...points.map((point) => point.elevationM));
-  const range = Math.max(max - min, 1);
-  const distance = Math.max(points.at(-1)?.distanceKm ?? 1, 1);
+  const range = Math.max(max - min, 30);
+  const ceiling = max + (range - (max - min)) / 2;
+  const distance = Math.max(points.at(-1)?.distanceKm ?? 1, 0.001);
   const coordinates = points.map((point) => ({
     x: padX + (point.distanceKm / distance) * (width - padX * 2),
     y:
       padTop +
-      ((max - point.elevationM) / range) * (height - padTop - padBottom),
+      ((ceiling - point.elevationM) / range) * (height - padTop - padBottom),
   }));
   const line = coordinates
     .map(
@@ -626,8 +628,12 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`거리 ${distance.toFixed(1)}킬로미터의 고도 그래프`}
+        aria-label={`거리 ${distance.toFixed(1)}킬로미터, 최저 ${Math.round(min)}미터, 최고 ${Math.round(max)}미터의 고도 그래프`}
       >
+        {[0, 0.5, 1].map(ratio => <g key={ratio}>
+          <line x1={padX} x2={width - padX} y1={padTop + ratio * (height - padTop - padBottom)} y2={padTop + ratio * (height - padTop - padBottom)} stroke="currentColor" opacity="0.12" />
+          <text x={padX - 5} y={padTop + ratio * (height - padTop - padBottom) + 4} textAnchor="end">{Math.round(ceiling - range * ratio)}m</text>
+        </g>)}
         <path className="elevation-area" d={area} />
         <path className="elevation-line" d={line} />
         <text x={padX} y={height - 6}>
@@ -637,6 +643,7 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
           {distance.toFixed(1)}km
         </text>
       </svg>
+      <small>지형 데이터 기반 추정치 · 교량·터널·실제 노면 높이와 다를 수 있어요. 세로축은 최소 30m 범위로 표시합니다.</small>
     </article>
   );
 }
@@ -1548,7 +1555,7 @@ function RecommendationBasis({ candidate }: { candidate: RouteCandidate }) {
         <span><i style={{ width: `${criteria?.uphillMatchPercent ?? 0}%` }} /><b>업힐 적합도 {criteria?.uphillMatchPercent ?? 0}%</b><small>목표 {criteria?.targetClimbRate ?? "-"}m/km · 실제 {candidate.climbRate}m/km</small></span>
       </div>
       <small>※ 교통 통제·노면 공사·현장 안전 상태는 출발 전 별도로 확인해야 합니다.</small>
-      <small>※ 빨간 업힐: 경사도 2.2% 이상 상승이 180m 이상 이어지고 상승고도 8m 이상인 구간입니다.</small>
+      <small>※ 빨간 업힐: 보정 고도 기준 길이 180m 이상·순상승 8m 이상·평균 경사도 2.2% 이상인 구간입니다.</small>
     </article>
   );
 }
@@ -2100,7 +2107,7 @@ function CreateRide({
           </fieldset>
           <details className="uphill-rule">
             <summary>업힐 표시 기준 알아보기</summary>
-            <p>경사도 2.2% 이상의 상승이 180m 이상 이어지고, 해당 구간에서 8m 이상 올라간 경우입니다. 짧은 완만 구간은 최대 160m까지 같은 업힐로 연결합니다.</p>
+            <p>약 25m 간격으로 고도를 보정한 뒤, 길이 180m 이상·순상승 8m 이상·평균 경사도 2.2% 이상인 구간을 표시합니다. 중간의 완만 구간은 최대 160m까지 연결하며, 업힐 끝의 평지·내리막은 제외합니다.</p>
             <p>자전거 주행 가능 경로에는 일반도로가 포함될 수 있습니다. 출발 전 통행 가능 여부를 확인하세요.</p>
           </details>
           <fieldset>

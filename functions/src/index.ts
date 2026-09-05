@@ -8,6 +8,7 @@ import { defineSecret } from "firebase-functions/params";
 import { createHash } from "node:crypto";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { expiryTime, groupLimitReached } from "./lifecycle.js";
+import { analyzeElevation } from "./elevation.js";
 
 initializeApp();
 const db = getFirestore();
@@ -218,11 +219,14 @@ const detectClimbs = (geometry: number[][]): ClimbSegment[] => {
   let startIndex: number | null = null;
   let gain = 0;
   let gapDistance = 0;
+  let lastClimbIndex = 0;
   const finish = (endIndex: number) => {
+    endIndex = Math.min(endIndex, lastClimbIndex);
     if (startIndex === null || endIndex <= startIndex) return;
     const climbStart = startIndex;
     const lengthKm = distances[endIndex] - distances[climbStart];
-    if (lengthKm >= 0.18 && gain >= 8) {
+    const netGain = geometry[endIndex][2] - geometry[climbStart][2];
+    if (lengthKm >= 0.18 && netGain >= 8 && netGain / (lengthKm * 10) >= 2.2) {
       const sampleEvery = Math.max(1, Math.ceil((endIndex - climbStart + 1) / 45));
       const coordinates = geometry
         .slice(climbStart, endIndex + 1)
@@ -233,7 +237,7 @@ const detectClimbs = (geometry: number[][]): ClimbSegment[] => {
         startKm: Math.round(distances[climbStart] * 10) / 10,
         endKm: Math.round(distances[endIndex] * 10) / 10,
         gainM: Math.round(gain),
-        avgGradient: Math.round((gain / (lengthKm * 1000)) * 1000) / 10,
+        avgGradient: Math.round((netGain / (lengthKm * 1000)) * 1000) / 10,
         coordinates,
       });
     }
@@ -247,6 +251,7 @@ const detectClimbs = (geometry: number[][]): ClimbSegment[] => {
     const gradient = segmentKm > 0 ? (elevationGain / (segmentKm * 1000)) * 100 : 0;
     if (Number.isFinite(gradient) && gradient >= 2.2 && elevationGain > 0) {
       if (startIndex === null) startIndex = index - 1;
+      lastClimbIndex = index;
       gain += elevationGain;
       gapDistance = 0;
     } else if (startIndex !== null && segmentKm <= 0.08 && gapDistance + segmentKm <= 0.16) {
@@ -285,40 +290,13 @@ const callOrs = async (coordinates: Point[]) => {
   const route = data.features?.[0];
   if (!route?.geometry?.coordinates || !route.properties?.summary)
     throw new Error("ORS route missing");
-  const elevations = route.geometry.coordinates
-    .map((point) => point[2])
-    .filter(Number.isFinite);
-  const geometryAscent = elevations.reduce(
-    (total, elevation, index) =>
-      index === 0 ? 0 : total + Math.max(0, elevation - elevations[index - 1]),
-    0,
-  );
-  const ascent =
-    route.properties.summary.ascent ??
-    (elevations.length > 1 ? geometryAscent : undefined);
-  if (!Number.isFinite(ascent)) throw new Error("ORS elevation missing");
-  let cumulativeDistance = 0;
-  const fullProfile = route.geometry.coordinates.map((point, index) => {
-    if (index)
-      cumulativeDistance += segmentDistanceKm(
-        route.geometry!.coordinates![index - 1],
-        point,
-      );
-    return {
-      distanceKm: Math.round(cumulativeDistance * 100) / 100,
-      elevationM: Math.round(point[2]),
-    };
-  });
-  const sampleEvery = Math.max(1, Math.ceil(fullProfile.length / 80));
-  const elevationProfile = fullProfile.filter(
-    (_, index) => index % sampleEvery === 0 || index === fullProfile.length - 1,
-  );
+  const elevation = analyzeElevation(route.geometry.coordinates, segmentDistanceKm);
   return {
     coordinates: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
     distanceKm: Math.round((route.properties.summary.distance ?? 0) / 100) / 10,
-    elevationM: Math.round(ascent!),
-    elevationProfile,
-    climbSegments: detectClimbs(route.geometry.coordinates),
+    elevationM: elevation.ascent,
+    elevationProfile: elevation.profile,
+    climbSegments: detectClimbs(elevation.geometry),
   };
 };
 const enforceRecommendationLimit = async (ip: string) => {

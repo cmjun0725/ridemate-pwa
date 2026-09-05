@@ -982,6 +982,44 @@ export const leaveRide = onCall({ region }, async (request) => {
   return { ok: true };
 });
 
+export const cancelRide = onCall({ region }, async (request) => {
+  requireAuth(request.auth?.uid);
+  const rideId = String(request.data?.rideId ?? "");
+  if (!rideId || rideId.includes("/")) throw new HttpsError("invalid-argument", "라이딩 정보가 필요합니다.");
+  const ref = db.collection("rides").doc(rideId);
+  await db.runTransaction(async tx => {
+    const snapshot = await tx.get(ref);
+    const ride = snapshot.data();
+    if (!ride) throw new HttpsError("not-found", "이미 삭제된 라이딩입니다.");
+    if (ride.hostId !== request.auth!.uid) throw new HttpsError("permission-denied", "방장만 라이딩을 취소할 수 있습니다.");
+    if (ride.lifecycleDeletedAt) return;
+    if (!["계획", "모집중", "마감", "완료"].includes(ride.status)) throw new HttpsError("failed-precondition", "진행 중인 라이딩은 먼저 종료해 주세요.");
+    tx.update(ref, { status: "삭제됨", previousStatus: ride.status, visibility: "private", lifecycleDeletedAt: FieldValue.serverTimestamp(), deletionReason: "host_cancelled", updatedAt: FieldValue.serverTimestamp() });
+    if (ride.purpose !== "solo" && ride.status !== "완료") tx.set(ref.collection("cancellationEvents").doc("cancelled"), { title: String(ride.title), hostId: ride.hostId, createdAt: FieldValue.serverTimestamp() });
+  });
+  return { ok: true };
+});
+
+export const notifyRideCancelled = onDocumentCreated({ region, document: "rides/{rideId}/cancellationEvents/{eventId}", retry: true }, async event => {
+  const data = event.data?.data();
+  if (!data) return;
+  const members = await db.collection("rideMembers").where("rideId", "==", event.params.rideId).get();
+  const tokens = new Set<string>();
+  for (const member of members.docs) {
+    const uid = String(member.data().userId);
+    if (uid === data.hostId) continue;
+    const profile = await db.collection("users").doc(uid).get();
+    if (profile.data()?.notifications?.ride === false) continue;
+    const devices = await db.collection("deviceTokens").where("userId", "==", uid).get();
+    for (const device of devices.docs) if (device.data().token) tokens.add(String(device.data().token));
+  }
+  const list = [...tokens];
+  for (let i = 0; i < list.length; i += 500) {
+    const result = await getMessaging().sendEachForMulticast({ tokens: list.slice(i, i + 500), notification: { title: "라이딩이 취소되었어요", body: `${data.title} · 방장이 일정을 취소했습니다.` }, data: { rideId: event.params.rideId, url: "./?view=my" }, webpush: { notification: { tag: `cancel-${event.params.rideId}` } } });
+    if (result.responses.some(r => r.error && !["messaging/registration-token-not-registered", "messaging/invalid-registration-token"].includes(r.error.code))) throw new Error("Cancellation notification retry required");
+  }
+});
+
 export const startRide = onCall({ region }, async (request) => {
   requireAuth(request.auth?.uid);
   const rideId = String((request.data as { rideId?: string }).rideId ?? "");

@@ -1,5 +1,6 @@
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
+export const cancelRide = (rideId: string) => callable<{rideId: string}, {ok: boolean}>("cancelRide", { rideId });
 import type { ClimbSegment, Coordinate, ElevationPoint, LiveLocation, Ride, RouteCandidate, Stop } from "./types";
 
 export async function requestCourseCandidates(input: {

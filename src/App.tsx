@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { SelectMenu } from "./SelectMenu";
+import { CancelRideButton } from "./CancelRideButton";
 import {
   Bell,
   CalendarDays,
@@ -28,6 +29,7 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
   sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -1021,6 +1023,7 @@ function RideDetail({
           {message}
         </p>
       )}
+      {isHost && ["계획", "모집중", "마감", "완료"].includes(ride.status) && <CancelRideButton rideId={ride.id} onCancelled={onBack} />}
       <div className="detail-actions">
         <button onClick={() => void shareRide()}>
           <Share2 /> 공유
@@ -2626,6 +2629,15 @@ function LoginPanel() {
           ? "처음이신가요? 이메일로 회원가입"
           : "이미 계정이 있나요? 로그인"}
       </button>
+      {mode === "login" && <button className="text-button" disabled={busy} onClick={async () => {
+        const input = document.querySelector<HTMLInputElement>('.login-panel input[name="email"]');
+        if (!input || !input.value.trim() || !input.reportValidity()) { input?.focus(); setMessage("이메일을 입력한 뒤 비밀번호 재설정을 눌러 주세요."); return; }
+        if (!auth) { setMessage("로그인 연결을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."); return; }
+        setBusy(true); setMessage("");
+        try { await sendPasswordResetEmail(auth, input.value.trim()); setMessage("가입된 이메일이라면 재설정 안내가 발송됩니다. 스팸함도 확인해 주세요."); }
+        catch { setMessage("안내 메일 요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
+        finally { setBusy(false); }
+      }}>비밀번호를 잊으셨나요?</button>}
       <article className="notice">
         <b>카카오 로그인</b>
         <p>
@@ -2639,6 +2651,8 @@ function LoginPanel() {
 }
 
 function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void }) {
+  const [poiError, setPoiError] = useState("");
+  const [poiRetry, setPoiRetry] = useState(0);
   const [route, setRoute] = useState<Coordinate[]>(plan.course.coordinates ?? []);
   const mapRoutes = useMemo(() => [route], [route]);
   const [stops, setStops] = useState(plan.course.stops ?? []);
@@ -2677,12 +2691,15 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
   }, [plan.id, plan.course.startName, plan.course.endName, plan.course.distanceKm, plan.startName, route.length]);
   useEffect(() => {
     if (stops.length || route.length < 2) return;
+    let active = true;
+    setPoiError("");
     setLoadingPois(true);
     void searchCoursePois(route)
-      .then(setStops)
-      .catch(() => undefined)
-      .finally(() => setLoadingPois(false));
-  }, [route, stops.length]);
+      .then(rows => { if (active) { setStops(rows); setLoadingPois(false); } })
+      .catch(() => { if (active) setPoiError("편의시설을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요."); })
+      .finally(() => { if (active) setLoadingPois(false); });
+    return () => { active = false; };
+  }, [route, stops.length, poiRetry]);
   return (
     <section className="page detail saved-detail">
       <button className="back" onClick={onBack}>← 내 라이딩으로</button>
@@ -2706,6 +2723,7 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
         ) : null}
       </div>
       {actionError && <p className="form-error" role="alert">{actionError}</p>}
+      {["계획", "모집중", "마감", "완료"].includes(status) && <CancelRideButton rideId={plan.id} onCancelled={onBack} />}
       <div className="stat-grid">
         <span><Route />{Number(plan.course.distanceKm ?? 0)} km<small>거리</small></span>
         <span><Mountain />{Number(plan.course.elevationM ?? 0)} m<small>누적 상승</small></span>
@@ -2717,6 +2735,7 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
       )}
       <article className="info">
         <h2>코스 주변 편의시설</h2>
+        {poiError && <div role="alert"><p>{poiError}</p><button className="secondary" onClick={() => setPoiRetry(value => value + 1)}>편의시설 다시 불러오기</button></div>}
         <FacilityList stops={stops} loading={loadingPois} />
       </article>
       {plan.description && <article className="info"><h2>라이딩 메모</h2><p>{plan.description}</p></article>}
@@ -2755,6 +2774,7 @@ function SavedGroupRide({ plan, onBack }: { plan: SavedPlan; onBack: () => void 
 }
 
 function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => void }) {
+  const [revision, setRevision] = useState(0);
   const [plans, setPlans] = useState<SavedPlan[]>(readPlans);
   const [selected, setSelected] = useState<SavedPlan | null>(null);
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
@@ -2785,7 +2805,8 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
       active = false;
       unsubscribe();
     };
-  }, []);
+  }, [revision]);
+  const returnToList = () => { setSelected(null); setRevision(value => value + 1); };
   if (!authReady)
     return <section className="page"><div className="skeleton-card" aria-label="로그인 상태 확인 중" /></section>;
   if (!user)
@@ -2797,10 +2818,11 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
         <button className="primary wide" onClick={onLogin}>로그인하러 가기</button>
       </section>
     );
-  if (selected) return selected.purpose === "group" ? <SavedGroupRide plan={selected} onBack={() => setSelected(null)} /> : <SavedRideDetail plan={selected} onBack={() => setSelected(null)} />;
+  if (selected) return selected.purpose === "group" ? <SavedGroupRide plan={selected} onBack={returnToList} /> : <SavedRideDetail plan={selected} onBack={returnToList} />;
   return (
     <section className="page">
       <h1>내 라이딩</h1>
+      <button className="secondary" disabled={loading} onClick={() => setRevision(value => value + 1)}>{loading ? "불러오는 중…" : "목록 새로고침"}</button>
       <p className="sub">저장한 코스와 모집 방을 누르면 경로·업힐·편의시설을 확인할 수 있어요.</p>
       <div className="list">
         {loading && <div className="skeleton-card" aria-label="내 라이딩 불러오는 중" />}
@@ -3015,6 +3037,11 @@ export default function App() {
   const content = selected ? (
     <RideDetail ride={selected} onBack={() => {
       setSelected(null);
+      setFeedLoading(true);
+      void listPublicRides().then(next => {
+        setRides(next); setFeedError("");
+        try { localStorage.setItem("ridemate-public-feed", JSON.stringify(next.slice(0, 40))); } catch { /* Storage may be unavailable. */ }
+      }).catch(() => setFeedError("변경된 목록을 불러오지 못했습니다. 다시 접속해 주세요.")).finally(() => setFeedLoading(false));
       window.history.replaceState({}, "", window.location.pathname);
     }} />
   ) : tab === "create" ? (

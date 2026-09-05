@@ -7,6 +7,11 @@ export function buildRideStart(
   minute: string,
 ) {
   if (!date) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !["AM", "PM"].includes(period) || !Number.isInteger(hourValue) || hourValue < 1 || hourValue > 12 || !/^\d{2}$/.test(minute) || Number(minute) > 59)
+    throw new Error("날짜와 시간을 올바르게 입력해 주세요.");
+  const calendarDate = new Date(`${date}T00:00:00Z`);
+  if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== date)
+    throw new Error("존재하지 않는 날짜입니다.");
   let hour = hourValue;
   if (period === "PM" && hour < 12) hour += 12;
   if (period === "AM" && hour === 12) hour = 0;

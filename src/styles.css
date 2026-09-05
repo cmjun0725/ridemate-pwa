@@ -135,6 +135,18 @@ header {
   color: #087458;
   background: #dff1e9;
 }
+#notification-settings { scroll-margin-top: 92px; }
+.place-field .place-selection small, .detail .route-endpoints em {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 .page {
   padding: 10px 20px 24px;
   padding-bottom: calc(24px + 88px);

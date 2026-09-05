@@ -400,10 +400,8 @@ export const recommendRoute = onCall(
     if (
       !start ||
       !end ||
-      !Number.isFinite(start.lat) ||
-      !Number.isFinite(start.lng) ||
-      !Number.isFinite(end.lat) ||
-      !Number.isFinite(end.lng)
+      !isPoint(start) ||
+      !isPoint(end)
     )
       throw new HttpsError(
         "invalid-argument",
@@ -463,7 +461,7 @@ export const castNoShowVote = onCall({ region }, async (request) => {
     targetUserId: string;
     noShow: boolean;
   };
-  if (!rideId || !targetUserId || targetUserId === request.auth!.uid)
+  if (!rideId || !targetUserId || targetUserId === request.auth!.uid || typeof noShow !== "boolean")
     throw new HttpsError("invalid-argument", "유효하지 않은 투표입니다.");
   const ride = await db.collection("rides").doc(rideId).get();
   if (!ride.exists || ride.data()!.status !== "완료")
@@ -540,15 +538,17 @@ export const notifyVoteOpened = onDocumentCreated(
       .collection("rideMembers")
       .where("rideId", "==", rideId)
       .get();
-    const ids = members.docs.map((d) => d.data().userId);
-    const tokens = await db
-      .collection("deviceTokens")
-      .where("userId", "in", ids.slice(0, 10))
-      .get();
-    const values = tokens.docs.map((d) => d.data().token).filter(Boolean);
-    if (values.length)
+    const ids = members.docs.map((d) => String(d.data().userId)).filter(Boolean);
+    if (!ids.length) return;
+    const profiles = await db.getAll(...ids.map((id) => db.collection("users").doc(id)));
+    const enabled = profiles.filter((row) => row.data()?.notifications?.safety !== false).map((row) => row.id);
+    const tokenRows = await Promise.all(Array.from({ length: Math.ceil(enabled.length / 10) }, (_, index) =>
+      db.collection("deviceTokens").where("userId", "in", enabled.slice(index * 10, index * 10 + 10)).get(),
+    ));
+    const values = [...new Set(tokenRows.flatMap((rows) => rows.docs.map((d) => String(d.data().token ?? "")).filter(Boolean)))];
+    for (let offset = 0; offset < values.length; offset += 500)
       await getMessaging().sendEachForMulticast({
-        tokens: values,
+        tokens: values.slice(offset, offset + 500),
         notification: {
           title: "노쇼 확인 투표",
           body: "라이딩 참여 여부를 확인해 주세요.",
@@ -633,6 +633,12 @@ export const createRidePlan = onCall({ region }, async (request) => {
   if (data.purpose === "group" && (!data.startsAt || !Number.isFinite(new Date(data.startsAt).getTime()))) throw new HttpsError("invalid-argument", "함께 라이딩은 출발 날짜와 시간이 필요합니다.");
   if (data.purpose === "group" && new Date(data.startsAt!).getTime() <= Date.now()) throw new HttpsError("invalid-argument", "출발 날짜와 시간은 현재 이후로 설정해 주세요.");
   if (!Number.isFinite(data.paceKmh) || Number(data.paceKmh) < 5 || Number(data.paceKmh) > 60) throw new HttpsError("invalid-argument", "목표 평속은 5~60km/h로 입력해 주세요.");
+  if (data.startsAt && !Number.isFinite(new Date(data.startsAt).getTime()))
+    throw new HttpsError("invalid-argument", "출발 날짜와 시간을 확인해 주세요.");
+  if (data.purpose === "group" && (!Number.isInteger(data.capacity) || data.capacity! < 2 || data.capacity! > 50))
+    throw new HttpsError("invalid-argument", "모집 인원은 방장을 제외하고 1~49명이어야 합니다.");
+  if (!Array.isArray(data.coordinates) || data.coordinates.length < 2 || !data.coordinates.every(isPoint))
+    throw new HttpsError("invalid-argument", "유효한 자전거 경로가 필요합니다. 경로를 다시 계산해 주세요.");
   if (hasBlockedRideContent(data.title, data.description, data.meetingNote))
     throw new HttpsError(
       "invalid-argument",
@@ -698,7 +704,6 @@ export const createRidePlan = onCall({ region }, async (request) => {
     db.collection("users").doc(userId),
     {
       email: request.auth?.token?.email ?? null,
-      status: "active",
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true },
@@ -869,7 +874,7 @@ export const getRideDetails = onCall({ region }, async (request) => {
   if (!rideId)
     throw new HttpsError("invalid-argument", "라이딩 정보가 필요합니다.");
   const ride = await db.collection("rides").doc(rideId).get();
-  if (!ride.exists || ride.data()?.visibility !== "public" || hasBlockedRideContent(String(ride.data()?.title ?? ""), String(ride.data()?.description ?? "")))
+  if (!ride.exists || ride.data()?.visibility !== "public" || ride.data()?.status === "숨김" || hasBlockedRideContent(String(ride.data()?.title ?? ""), String(ride.data()?.description ?? "")))
     throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
   const [course, members] = await Promise.all([
     db.collection("courses").doc(String(ride.data()!.courseId)).get(),
@@ -884,6 +889,11 @@ export const getRideDetails = onCall({ region }, async (request) => {
     ride: {
       ...serialize(ride),
       course: serialize(course),
+      host: {
+        id: String(ride.data()!.hostId),
+        name: String(profiles.find((profile) => profile.id === ride.data()!.hostId)?.data()?.displayName ?? "라이더"),
+        noShowCount: Number(profiles.find((profile) => profile.id === ride.data()!.hostId)?.data()?.noShowCount ?? 0),
+      },
       members: profiles.map((profile) => ({
         id: profile.id,
         name: String(profile.data()?.displayName ?? "라이더"),
@@ -918,6 +928,8 @@ export const leaveRide = onCall({ region }, async (request) => {
         "failed-precondition",
         "방장은 라이딩을 삭제하거나 다른 방장에게 위임해야 합니다.",
       );
+    if (!["모집중", "마감"].includes(String(ride.data()!.status)))
+      throw new HttpsError("failed-precondition", "출발 이후에는 참여 기록을 취소할 수 없습니다.");
     tx.delete(memberRef);
     tx.update(rideRef, {
       memberCount: FieldValue.increment(-1),
@@ -1124,20 +1136,17 @@ export const saveRiderSettings = onCall({ region }, async (request) => {
     .set(
       {
         ...(displayName ? { displayName } : {}),
-        safety: {
-          emergencyName: emergencyName.slice(0, 30),
-          emergencyPhone: emergencyPhone.slice(0, 20),
-          identityStatus: "unverified",
-          phoneVerified: false,
-        },
-        notifications: {
-          ride: data.notifyRide !== false,
-          chat: data.notifyChat !== false,
-          safety: data.notifySafety !== false,
-        },
-        onboardingComplete: data.onboardingComplete === true,
+        ...(data.emergencyName !== undefined || data.emergencyPhone !== undefined ? { safety: {
+          ...(data.emergencyName !== undefined ? { emergencyName: emergencyName.slice(0, 30) } : {}),
+          ...(data.emergencyPhone !== undefined ? { emergencyPhone: emergencyPhone.slice(0, 20) } : {}),
+        } } : {}),
+        ...(data.notifyRide !== undefined || data.notifyChat !== undefined || data.notifySafety !== undefined ? { notifications: {
+          ...(data.notifyRide !== undefined ? { ride: data.notifyRide === true } : {}),
+          ...(data.notifyChat !== undefined ? { chat: data.notifyChat === true } : {}),
+          ...(data.notifySafety !== undefined ? { safety: data.notifySafety === true } : {}),
+        } } : {}),
+        ...(data.onboardingComplete !== undefined ? { onboardingComplete: data.onboardingComplete === true } : {}),
         email: request.auth?.token?.email ?? null,
-        status: "active",
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },
@@ -1153,10 +1162,11 @@ export const getRiderSettings = onCall({ region }, async (request) => {
     settings: {
       displayName: value.displayName ?? "",
       safety: value.safety ?? {},
-      notifications: value.notifications ?? {
+      notifications: {
         ride: true,
         chat: true,
         safety: true,
+        ...value.notifications,
       },
       onboardingComplete: value.onboardingComplete === true,
       identityStatus: value.safety?.identityStatus ?? "unverified",

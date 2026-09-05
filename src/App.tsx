@@ -72,7 +72,7 @@ import {
 import type { ClimbSegment, Coordinate, ElevationPoint, LiveLocation, Ride, RouteCandidate, Stop } from "./types";
 
 type Tab = "home" | "search" | "courses" | "create" | "my" | "profile";
-const fmt = (value: string) =>
+const fmt = (value: string) => !Number.isFinite(new Date(value).getTime()) ? "일정 미정" :
   new Intl.DateTimeFormat("ko-KR", {
     month: "long",
     day: "numeric",
@@ -1813,7 +1813,7 @@ function CreateRide({
   const [mode, setMode] = useState<"guided" | "manual">("guided");
   const [tripType, setTripType] = useState<"round" | "oneway">("round");
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
-  const [, setDraft] = useState<Partial<RidePlanInput>>({});
+  const [draft, setDraft] = useState<Partial<RidePlanInput>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [manualDone, setManualDone] = useState(false);
@@ -1915,10 +1915,7 @@ function CreateRide({
         endName: manualEndName,
         endAddress: String(form.get("manualEndAddress") ?? ""),
         startsAt: startsAtFrom(form),
-        distanceKm:
-          uploaded?.distanceKm ||
-          Number(form.get("manualDistance")) ||
-          routed.distanceKm,
+        distanceKm: routed.distanceKm,
         elevationM: routed.elevationM,
         paceKmh: Number(form.get("paceKmh")),
         capacity: solo ? 1 : Number(form.get("capacity")) + 1,
@@ -2026,6 +2023,7 @@ function CreateRide({
       {mode === "guided" && candidates.length ? (
         <CandidateResults
           candidates={candidates}
+          draft={draft}
           onReset={() => setCandidates([])}
           onCreated={onCreated}
           solo={solo}
@@ -2034,7 +2032,7 @@ function CreateRide({
         <form onSubmit={submitGuided}>
           <article className="notice route-method">
             <b>AI를 사용하지 않습니다</b>
-            <p>전국 OSM 자전거 가능 도로망에서 여러 방향을 탐색하고, ORS 실측 거리·고도와 희망 업힐 조건을 점수화합니다.</p>
+            <p>출발지에서 여러 방향의 자전거 주행 가능 경로를 계산하고, 지도 데이터의 거리·고도로 희망 조건과 비교합니다. 일반도로가 포함될 수 있으므로 출발 전 경로를 확인하세요.</p>
           </article>
           <PlacePicker name="startName" label="출발 지점" placeholder="역·공원·정확한 장소명 검색" />
           <div className="two distance-row">
@@ -2124,13 +2122,12 @@ function CreateRide({
           <PlacePicker name="manualEnd" label="도착 지점" placeholder="도착 장소 검색 후 선택" />
           <div className="two">
             <label>
-              예상 거리
+              경로 거리
               <input
                 name="manualDistance"
                 type="number"
-                min="1"
-                step="0.1"
-                placeholder="자동 계산"
+                readOnly
+                placeholder="경로로 자동 계산"
               />
               <small>km</small>
             </label>
@@ -2230,13 +2227,19 @@ function LegalLinks() {
 
 function ProfileTools() {
   const [settings, setSettings] = useState<RiderSettings | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
   const [saved, setSaved] = useState("");
   const [legal, setLegal] = useState<keyof typeof legalCopy | null>(null);
   useEffect(() => {
+    let active = true;
+    setLoadError("");
     void getRiderSettings()
-      .then(setSettings)
-      .catch(() => undefined);
-  }, []);
+      .then((value) => { if (active) setSettings(value); })
+      .catch(() => { if (active) setLoadError("프로필을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요."); });
+    return () => { active = false; };
+  }, [retry]);
+  if (loadError) return <div className="form-error" role="alert">{loadError}<button className="secondary" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></div>;
   if (!settings)
     return (
       <div className="skeleton-card" aria-label="프로필 설정 불러오는 중" />
@@ -2842,6 +2845,21 @@ export default function App() {
   });
   const [selected, setSelected] = useState<Ride | null>(null);
   const [query, setQuery] = useState("");
+  const [notificationRequested, setNotificationRequested] = useState(false);
+  useEffect(() => {
+    if (!notificationRequested || tab !== "profile" || selected) return;
+    const focusSettings = () => {
+      const target = document.getElementById("notification-settings");
+      if (!target) return;
+      target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+      setNotificationRequested(false);
+    };
+    const observer = new MutationObserver(focusSettings);
+    observer.observe(document.getElementById("main-content") ?? document.body, { childList: true, subtree: true });
+    focusSettings();
+    return () => observer.disconnect();
+  }, [notificationRequested, tab, selected]);
   const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 200);
@@ -3116,7 +3134,8 @@ export default function App() {
             onClick={() => {
               setSelected(null);
               setTab("profile");
-              window.setTimeout(() => document.getElementById("notification-settings")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+              setNotificationRequested(true);
+              window.history.replaceState({}, "", `${window.location.pathname}?view=profile`);
             }}
           >
             <Bell size={20} />
@@ -3128,6 +3147,8 @@ export default function App() {
             onClick={() => {
               setSelected(null);
               setTab("profile");
+              setNotificationRequested(false);
+              window.history.replaceState({}, "", `${window.location.pathname}?view=profile`);
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           >

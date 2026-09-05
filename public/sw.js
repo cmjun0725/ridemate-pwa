@@ -1,4 +1,4 @@
-const CACHE = "ridemate-shell-v9";
+const CACHE = "ridemate-shell-v10";
 const ASSETS = [
   "./",
   "./offline.html",
@@ -21,7 +21,7 @@ self.addEventListener("activate", (event) =>
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)),
+          keys.filter((key) => key.startsWith("ridemate-shell-") && key !== CACHE).map((key) => caches.delete(key)),
         ),
       )
       .then(() => self.clients.claim()),
@@ -35,9 +35,9 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request, { cache: "no-store" })
-        .then((response) => {
+        .then(async (response) => {
           if (response.ok)
-            caches
+            await caches
               .open(CACHE)
               .then((cache) => cache.put("./", response.clone()));
           return response;
@@ -58,14 +58,14 @@ self.addEventListener("fetch", (event) => {
     return;
   event.respondWith(
     caches.match(request).then((cached) => {
-      const network = fetch(request).then((response) => {
+      if (cached) return cached;
+      return fetch(request).then(async (response) => {
         if (response.ok && response.type === "basic")
-          caches
+          await caches
             .open(CACHE)
             .then((cache) => cache.put(request, response.clone()));
         return response;
       });
-      return cached || network;
     }),
   );
 });
@@ -99,7 +99,8 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url ?? "./", self.registration.scope).href;
+  const requestedUrl = new URL(event.notification.data?.url ?? "./", self.registration.scope);
+  const targetUrl = requestedUrl.origin === self.location.origin ? requestedUrl.href : self.registration.scope;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
       const sameOrigin = windows.find((client) => new URL(client.url).origin === self.location.origin);

@@ -31,6 +31,14 @@ const ride = (distanceKm: number, paceKmh: number, title = "한강 라이딩") =
   }) as Ride;
 
 describe("라이딩 도메인 정책", () => {
+  it("존재하지 않는 날짜와 잘못된 시각을 거부한다", () => {
+    expect(() => buildRideStart("2026-02-30", "AM", 8, "00")).toThrow();
+    expect(() => buildRideStart("2026-09-05", "AM", 0, "00")).toThrow();
+    expect(() => buildRideStart("2026-09-05", "AM", 8, "60")).toThrow();
+    expect(() => buildRideStart("2026-09-05", "invalid", 8, "00")).toThrow();
+    expect(buildRideStart("", "AM", 8, "00")).toBeUndefined();
+    expect(buildRideStart("2028-02-29", "PM", 12, "00")).toBe("2028-02-29T03:00:00.000Z");
+  });
   it("오전·오후를 명확한 24시간 시각으로 변환한다", () => {
     expect(buildRideStart("2026-09-05", "AM", 12, "30")).toContain(
       "2026-09-04T15:30:00.000Z",

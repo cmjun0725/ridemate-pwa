@@ -17,9 +17,9 @@ export async function requestCourseCandidates(input: {
   return (await call(input)).data.candidates;
 }
 
-export const requestManualRoute = (start: Coordinate, end: Coordinate) =>
+export const requestManualRoute = (start: Coordinate, end: Coordinate, tripType: "oneway" | "round" = "oneway") =>
   callable<
-    { start: Coordinate; end: Coordinate },
+    { start: Coordinate; end: Coordinate; tripType: "oneway" | "round" },
     {
       coordinates: Coordinate[];
       distanceKm: number;
@@ -27,7 +27,7 @@ export const requestManualRoute = (start: Coordinate, end: Coordinate) =>
       elevationProfile: Array<{ distanceKm: number; elevationM: number }>;
       climbSegments: ClimbSegment[];
     }
-  >("recommendRoute", { start, end });
+  >("recommendRoute", { start, end, tripType });
 
 export type RidePlanInput = {
   title: string;

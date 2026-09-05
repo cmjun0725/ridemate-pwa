@@ -136,50 +136,6 @@ const startsAtFrom = (form: FormData) => {
     String(form.get("rideMinute") ?? "00"),
   );
 };
-const parseGpx = async (file?: File) => {
-  if (!file) return undefined;
-  const xml = new DOMParser().parseFromString(
-    await file.text(),
-    "application/xml",
-  );
-  if (xml.querySelector("parsererror"))
-    throw new Error("GPX 파일 형식을 확인해 주세요.");
-  const points = [...xml.querySelectorAll("trkpt, rtept")]
-    .map((node) => ({
-      lat: Number(node.getAttribute("lat")),
-      lng: Number(node.getAttribute("lon")),
-      elevationM: Number(node.querySelector("ele")?.textContent ?? 0),
-    }))
-    .filter(
-      (point) => Number.isFinite(point.lat) && Number.isFinite(point.lng),
-    );
-  if (points.length < 2)
-    throw new Error("GPX에 경로 지점이 2개 이상 필요합니다.");
-  let distanceKm = 0;
-  let elevationM = 0;
-  const profile = points.map((point, index) => {
-    if (index) {
-      const previous = points[index - 1];
-      const lat = (point.lat - previous.lat) * 111;
-      const lng = (point.lng - previous.lng) * 88;
-      distanceKm += Math.hypot(lat, lng);
-      elevationM += Math.max(0, point.elevationM - previous.elevationM);
-    }
-    return {
-      distanceKm: Math.round(distanceKm * 100) / 100,
-      elevationM: Math.round(point.elevationM),
-    };
-  });
-  const step = Math.max(1, Math.ceil(profile.length / 120));
-  return {
-    coordinates: points.map(({ lat, lng }) => ({ lat, lng })),
-    distanceKm: Math.round(distanceKm * 10) / 10,
-    elevationM: Math.round(elevationM),
-    elevationProfile: profile.filter(
-      (_, index) => index % step === 0 || index === profile.length - 1,
-    ),
-  };
-};
 
 const recoverStoredRoute = async (
   startName: string,
@@ -1842,6 +1798,31 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
   );
 }
 
+function ManualRouteReview({ plan, via, busy, error, onEdit, onApprove }: {
+  plan: RidePlanInput; via?: string; busy: boolean; error: string;
+  onEdit: () => void; onApprove: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [visible, setVisible] = useState(false);
+  const routes = useMemo(() => [plan.coordinates ?? []], [plan.coordinates]);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    setVisible(true);
+    return () => dialog?.close();
+  }, []);
+  return <dialog ref={dialogRef} className="manual-route-review" aria-labelledby="manual-review-title" onCancel={(event) => { event.preventDefault(); if (!busy) onEdit(); }}>
+    <div className="manual-review-heading"><div><h2 id="manual-review-title">코스를 확인하고 승인해 주세요</h2><p>아직 {plan.purpose === "solo" ? "계획이 저장되지" : "방이 만들어지지"} 않았습니다.</p></div><button type="button" className="secondary" disabled={busy} onClick={onEdit}>입력 수정</button></div>
+    <p className="manual-review-path">{plan.startName} → {via ? `${via} (반환점) → ${plan.startName}` : plan.endName}</p>
+    {visible && <CourseMap routes={routes} stops={plan.stops ?? []} climbSegments={plan.climbSegments ?? []} label="승인 전 자전거 코스 확인" />}
+    <div className="manual-review-summary"><b>{via ? "왕복 전체" : "편도"} {plan.distanceKm}km</b><b>누적 상승 {plan.elevationM ?? 0}m</b><span>평속 {plan.paceKmh}km/h</span><span>{fmt(plan.startsAt ?? "")}</span>{plan.purpose === "group" && <span>방장 포함 {plan.capacity}명</span>}</div>
+    <ElevationChart points={plan.elevationProfile ?? []} />
+    <FacilityList stops={plan.stops ?? []} compact />
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="manual-review-actions"><button type="button" className="secondary" disabled={busy} onClick={onEdit}>돌아가서 수정</button><button type="button" className="primary" disabled={busy} onClick={onApprove}>{busy ? "저장 중…" : plan.purpose === "solo" ? "이 코스 승인하고 계획 저장" : "이 코스 승인하고 방 만들기"}</button></div>
+  </dialog>;
+}
+
 function CreateRide({
   onCreated,
   onLogin,
@@ -1857,6 +1838,9 @@ function CreateRide({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [manualDone, setManualDone] = useState(false);
+  const [manualTrip, setManualTrip] = useState<"oneway" | "round">("oneway");
+  const [manualPreview, setManualPreview] = useState<{ plan: RidePlanInput; via?: string } | null>(null);
+  const savingManual = useRef(false);
   const solo = purpose === "solo";
   const submitGuided = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1933,27 +1917,17 @@ function CreateRide({
       const end = { lat: Number(form.get("manualEndLat")), lng: Number(form.get("manualEndLng")) };
       if (!manualStartName || !manualEndName || !Number.isFinite(start.lat) || !Number.isFinite(start.lng) || !Number.isFinite(end.lat) || !Number.isFinite(end.lng))
         throw new Error("출발지와 도착지를 검색 결과에서 각각 선택해 주세요.");
-      const file =
-        form.get("gpx") instanceof File && (form.get("gpx") as File).size
-          ? (form.get("gpx") as File)
-          : undefined;
-      const uploaded = await parseGpx(file);
-      const routed =
-        uploaded ??
-        (await (async () => {
-          return requestManualRoute(
-            start,
-            end,
-          );
-        })());
+      if (start.lat === end.lat && start.lng === end.lng) throw new Error("출발지와 다른 도착지 또는 반환점을 선택해 주세요.");
+      const routed = await requestManualRoute(start, end, manualTrip);
+      if (routed.coordinates.length < 2 || routed.distanceKm < 1 || routed.distanceKm > 300) throw new Error("1~300km 범위의 유효한 코스를 다시 선택해 주세요.");
       const stops = await searchCoursePois(routed.coordinates).catch(()=>[] as Stop[]);
-      await createRidePlan({
+      setManualPreview({ via: manualTrip === "round" ? manualEndName : undefined, plan: {
         title: String(form.get("title")),
         purpose,
         startName: manualStartName,
         startAddress: String(form.get("manualStartAddress") ?? ""),
-        endName: manualEndName,
-        endAddress: String(form.get("manualEndAddress") ?? ""),
+        endName: manualTrip === "round" ? manualStartName : manualEndName,
+        endAddress: String(form.get(manualTrip === "round" ? "manualStartAddress" : "manualEndAddress") ?? ""),
         startsAt: startsAtFrom(form),
         distanceKm: routed.distanceKm,
         elevationM: routed.elevationM,
@@ -1965,9 +1939,7 @@ function CreateRide({
         elevationProfile: routed.elevationProfile,
         climbSegments: (routed as { climbSegments?: ClimbSegment[] }).climbSegments ?? [],
         stops,
-      });
-      await trackProductEvent("course_created");
-      setManualDone(true);
+      } });
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -1975,6 +1947,23 @@ function CreateRide({
           : "라이딩을 저장하지 못했습니다.",
       );
     } finally {
+      setLoading(false);
+    }
+  };
+  const approveManual = async () => {
+    if (!manualPreview || savingManual.current) return;
+    savingManual.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      await createRidePlan(manualPreview.plan);
+      void trackProductEvent("course_created").catch(() => undefined);
+      setManualPreview(null);
+      setManualDone(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "저장하지 못했습니다. 다시 시도해 주세요.");
+    } finally {
+      savingManual.current = false;
       setLoading(false);
     }
   };
@@ -1988,7 +1977,7 @@ function CreateRide({
         <p>
           {solo
             ? "내 라이딩에서 언제든 다시 확인할 수 있어요."
-            : "입력한 내용으로 모집 방을 만들 준비가 됐습니다."}
+            : "승인한 코스로 모집 방을 만들었습니다."}
         </p>
         <button className="primary wide" onClick={onCreated}>
           라이딩 보기
@@ -1997,6 +1986,7 @@ function CreateRide({
     );
   return (
     <section className="page create-page">
+      {manualPreview && <ManualRouteReview plan={manualPreview.plan} via={manualPreview.via} busy={loading} error={error} onEdit={() => { setManualPreview(null); setError(""); }} onApprove={() => void approveManual()} />}
       <h1>{solo ? "혼자 라이딩 계획" : "라이딩 만들기"}</h1>
       <p className="sub">
         함께 달릴 방을 만들거나 나만의 코스를 계획할 수 있어요.
@@ -2146,7 +2136,7 @@ function CreateRide({
         <form onSubmit={submitManual}>
           <article className="notice manual-guide">
             <b>출발지와 도착지를 직접 정하세요</b>
-            <p>검색 결과에서 정확한 장소를 선택하면 자전거 경로·거리·상승고도를 자동 계산합니다. 선택 후에도 ‘장소 변경’으로 다시 고를 수 있습니다.</p>
+            <p>장소를 선택하고 큰 지도에서 경로를 확인하세요. 마지막 승인 버튼을 눌러야 저장됩니다.</p>
           </article>
           <label>
             라이딩 제목
@@ -2159,7 +2149,11 @@ function CreateRide({
             />
           </label>
           <PlacePicker name="manualStart" label="출발 지점" placeholder="출발 장소 검색 후 선택" />
-          <PlacePicker name="manualEnd" label="도착 지점" placeholder="도착 장소 검색 후 선택" />
+          <fieldset><legend>라이딩 유형</legend><div className="segmented">
+            <button type="button" className={manualTrip === "oneway" ? "active" : ""} aria-pressed={manualTrip === "oneway"} onClick={() => setManualTrip("oneway")}>편도</button>
+            <button type="button" className={manualTrip === "round" ? "active" : ""} aria-pressed={manualTrip === "round"} onClick={() => setManualTrip("round")}>왕복</button>
+          </div><p className="field-help">{manualTrip === "round" ? "출발지 → 반환점 → 출발지 전체 경로를 계산합니다. 돌아오는 길은 도로 방향에 따라 달라질 수 있어요." : "출발지에서 도착지까지 경로를 계산합니다."}</p></fieldset>
+          <PlacePicker name="manualEnd" label={manualTrip === "round" ? "반환 지점" : "도착 지점"} placeholder={manualTrip === "round" ? "돌아올 지점 검색 후 선택" : "도착 장소 검색 후 선택"} />
           <div className="two">
             <label>
               경로 거리
@@ -2183,10 +2177,6 @@ function CreateRide({
               />
             </label>
           </div>
-          <label>
-            코스 파일 <span className="optional">선택</span>
-            <input name="gpx" type="file" accept=".gpx,application/gpx+xml" />
-          </label>
           <CommonRideFields solo={solo} />
           {error && (
             <p className="form-error" role="alert">
@@ -2196,9 +2186,7 @@ function CreateRide({
           <button className="primary wide" type="submit" disabled={loading}>
             {loading
               ? "자전거 경로·고도 검증 중…"
-              : solo
-                ? "혼자 라이딩 계획 저장"
-                : "직접 입력으로 방 만들기"}
+              : "큰 지도에서 코스 확인"}
           </button>
         </form>
       )}
@@ -3193,7 +3181,6 @@ export default function App() {
             }}
           >
             <CircleUserRound size={21} />
-            <span>프로필</span>
           </button>
         </div>
       </header>

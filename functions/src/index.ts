@@ -396,19 +396,19 @@ export const recommendRoute = onCall(
   { region, secrets: [openRouteServiceKey] },
   async (request) => {
     requireAuth(request.auth?.uid);
-    const { start, end } = request.data as { start?: Point; end?: Point };
+    const { start, end, tripType = "oneway" } = request.data as { start?: Point; end?: Point; tripType?: TripType };
     if (
       !start ||
       !end ||
       !isPoint(start) ||
-      !isPoint(end)
+      !isPoint(end) || !["oneway", "round"].includes(tripType)
     )
       throw new HttpsError(
         "invalid-argument",
         "출발지와 도착지 좌표가 필요합니다.",
       );
     try {
-      return await callOrs([start, end]);
+      return await callOrs(tripType === "round" ? [start, end, start] : [start, end]);
     } catch {
       throw new HttpsError(
         "unavailable",

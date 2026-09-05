@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import ErrorBoundary from "./ErrorBoundary";
 import "./styles.css";
 import "./features.css";
+import "./design.css";
 import App from "./App";
 
 if ("serviceWorker" in navigator)

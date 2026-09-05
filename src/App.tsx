@@ -2035,8 +2035,8 @@ function CreateRide({
           }}
         >
           <Route />
-          <b>데이터 기반 코스 설계</b>
-          <small>자전거 도로·거리·고도로 3개 계산</small>
+          <b>조건으로 코스 찾기</b>
+          <small>거리와 업힐에 맞는 후보 비교</small>
         </button>
         <button
           className={mode === "manual" ? "active" : ""}
@@ -2061,8 +2061,8 @@ function CreateRide({
       ) : mode === "guided" ? (
         <form onSubmit={submitGuided}>
           <article className="notice route-method">
-            <b>AI를 사용하지 않습니다</b>
-            <p>출발지에서 여러 방향의 자전거 주행 가능 경로를 계산하고, 지도 데이터의 거리·고도로 희망 조건과 비교합니다. 일반도로가 포함될 수 있으므로 출발 전 경로를 확인하세요.</p>
+            <b>어디서, 얼마나 달리고 싶나요?</b>
+            <p>출발지와 희망 거리를 정하면 거리·고도에 맞는 코스를 찾아드려요.</p>
           </article>
           <PlacePicker name="startName" label="출발 지점" placeholder="역·공원·정확한 장소명 검색" />
           <div className="two distance-row">
@@ -2097,10 +2097,11 @@ function CreateRide({
               </label>
             </div>
           </fieldset>
-          <article className="uphill-rule">
-            <b>지도에서 빨간 업힐로 표시하는 기준</b>
+          <details className="uphill-rule">
+            <summary>업힐 표시 기준 알아보기</summary>
             <p>경사도 2.2% 이상의 상승이 180m 이상 이어지고, 해당 구간에서 8m 이상 올라간 경우입니다. 짧은 완만 구간은 최대 160m까지 같은 업힐로 연결합니다.</p>
-          </article>
+            <p>자전거 주행 가능 경로에는 일반도로가 포함될 수 있습니다. 출발 전 통행 가능 여부를 확인하세요.</p>
+          </details>
           <fieldset>
             <legend>라이딩 유형</legend>
             <div className="segmented">

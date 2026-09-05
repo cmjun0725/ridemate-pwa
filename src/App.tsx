@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { SelectMenu } from "./SelectMenu";
 import {
   Bell,
   CalendarDays,
@@ -3053,30 +3054,12 @@ export default function App() {
         )}
       </div>
       <div className="filter-bar" role="group" aria-label="라이딩 필터">
-        <label>
-          최대 거리
-          <select
-            value={maxDistance}
-            onChange={(event) => setMaxDistance(Number(event.target.value))}
-          >
-            <option value="30">30km</option>
-            <option value="60">60km</option>
-            <option value="100">100km</option>
-            <option value="200">전체</option>
-          </select>
-        </label>
-        <label>
-          최대 평속
-          <select
-            value={maxPace}
-            onChange={(event) => setMaxPace(Number(event.target.value))}
-          >
-            <option value="20">20km/h</option>
-            <option value="25">25km/h</option>
-            <option value="30">30km/h</option>
-            <option value="60">전체</option>
-          </select>
-        </label>
+        <div className="filter-field"><span>최대 거리</span>
+          <SelectMenu label="최대 거리" value={String(maxDistance)} onChange={value => setMaxDistance(Number(value))} options={[{value:"30",label:"30km"},{value:"60",label:"60km"},{value:"100",label:"100km"},{value:"200",label:"전체"}]} />
+        </div>
+        <div className="filter-field"><span>최대 평속</span>
+          <SelectMenu label="최대 평속" value={String(maxPace)} onChange={value => setMaxPace(Number(value))} options={[{value:"20",label:"20km/h"},{value:"25",label:"25km/h"},{value:"30",label:"30km/h"},{value:"60",label:"전체"}]} />
+        </div>
       </div>
       <div className="quick-filters" role="group" aria-label="빠른 필터">
         <button

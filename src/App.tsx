@@ -1493,10 +1493,11 @@ function CommonRideFields({ solo }: { solo: boolean }) {
               max="49"
               defaultValue="5"
             />
-            <small>방장 제외 · 1~49명</small>
+            <small>방장 제외 · 1~49명 / 함께 라이딩 방은 계정당 최대 4개</small>
           </label>
         )}
       </div>
+      <p className="form-hint">{solo ? "개인 계획은 개수 제한이 없으며, 일정이 없으면 자동 만료되지 않습니다. " : ""}출발 시간에 알림을 보냅니다. 미출발 시 예정 시간 + 24시간, 출발 후에는 거리 ÷ 평속으로 계산한 예상 종료 시간 + 24시간에 방이 자동 정리됩니다. 참여자가 없으면 정리됩니다.</p>
       {!solo && (
         <label>
           집합 위치 상세 안내 <span className="optional">선택</span>

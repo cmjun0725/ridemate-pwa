@@ -6,10 +6,66 @@ import { HttpsError, onCall } from "firebase-functions/https";
 import { onDocumentCreated } from "firebase-functions/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { createHash } from "node:crypto";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { expiryTime, groupLimitReached } from "./lifecycle.js";
 
 initializeApp();
 const db = getFirestore();
 const region = "asia-northeast3";
+
+// Soft deletion keeps moderation/vote evidence; clients never list these rooms.
+export const maintainRideLifecycle = onSchedule({
+  region, schedule: "every 1 minutes", timeZone: "Asia/Seoul",
+  timeoutSeconds: 540, maxInstances: 1,
+}, async () => {
+  let cursor: string | undefined;
+  while (true) {
+    let query = db.collection("rides").where("status", "in", ["계획", "모집중", "마감", "진행중", "완료", "숨김"]).orderBy("__name__").limit(100);
+    if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    if (page.empty) break;
+    for (const row of page.docs) {
+      try {
+        const notification = await db.runTransaction(async tx => {
+          const current = await tx.get(row.ref);
+          const ride = current.data();
+          if (!ride || ride.lifecycleDeletedAt) return null;
+          const now = Date.now();
+          const course = ride.courseId ? await tx.get(db.collection("courses").doc(String(ride.courseId))) : null;
+          const expiry = expiryTime(ride.startsAt?.toMillis?.() ?? null, ride.startedAt?.toMillis?.() ?? null, Number(course?.data()?.distanceKm), Number(ride.paceKmh));
+          const members = await tx.get(db.collection("rideMembers").where("rideId", "==", row.id));
+          if (members.empty || (expiry !== null && now >= expiry)) {
+            tx.update(row.ref, { status: "삭제됨", previousStatus: ride.status, visibility: "private", lifecycleDeletedAt: FieldValue.serverTimestamp(), deletionReason: members.empty ? "empty" : "expired", updatedAt: FieldValue.serverTimestamp() });
+            return null;
+          }
+          const scheduled = ride.startsAt?.toMillis?.();
+          if (!scheduled || scheduled > now || ride.startedAt || ride.status === "숨김" || ride.startReminderSentAt || (ride.startReminderLeaseUntil?.toMillis?.() ?? 0) > now) return null;
+          tx.update(row.ref, { startReminderLeaseUntil: new Date(now + 600_000) });
+          return { title: String(ride.title), userIds: members.docs.map(m => String(m.data().userId)) };
+        });
+        if (!notification) continue;
+        const tokens = new Set<string>();
+        for (const uid of notification.userIds) {
+          const profile = await db.collection("users").doc(uid).get();
+          if (profile.data()?.notifications?.ride === false) continue;
+          const devices = await db.collection("deviceTokens").where("userId", "==", uid).get();
+          for (const device of devices.docs) if (device.data().token) tokens.add(String(device.data().token));
+        }
+        const list = [...tokens];
+        for (let index = 0; index < list.length; index += 500) {
+          const result = await getMessaging().sendEachForMulticast({ tokens: list.slice(index, index + 500), notification: { title: "라이딩 출발 시간이에요", body: `${notification.title} · 집합 장소와 참여자를 확인해 주세요.` }, data: { rideId: row.id, url: "./?view=my" }, webpush: { notification: { tag: `ride-start-${row.id}` } } });
+          if (result.responses.some(r => r.error && !["messaging/registration-token-not-registered", "messaging/invalid-registration-token"].includes(r.error.code))) throw new Error("Retryable start notification failure");
+        }
+        await row.ref.update({ startReminderSentAt: FieldValue.serverTimestamp(), startReminderLeaseUntil: FieldValue.delete() });
+      } catch (error) {
+        console.error("Ride lifecycle processing failed", row.id, error instanceof Error ? error.message : "Unknown error");
+        // Other rooms still proceed. The next schedule retries after the lease expires.
+      }
+    }
+    cursor = page.docs[page.docs.length - 1].id;
+    if (page.size < 100) break;
+  }
+});
 const openRouteServiceKey = defineSecret("OPENROUTESERVICE_API_KEY");
 const adminEmails = defineSecret("ADMIN_EMAILS");
 const requireAuth = (uid?: string) => {
@@ -464,7 +520,7 @@ export const castNoShowVote = onCall({ region }, async (request) => {
   if (!rideId || !targetUserId || targetUserId === request.auth!.uid || typeof noShow !== "boolean")
     throw new HttpsError("invalid-argument", "유효하지 않은 투표입니다.");
   const ride = await db.collection("rides").doc(rideId).get();
-  if (!ride.exists || ride.data()!.status !== "완료")
+  if (!ride.exists || (ride.data()!.status !== "완료" && ride.data()!.previousStatus !== "완료"))
     throw new HttpsError(
       "failed-precondition",
       "종료된 라이딩에서만 투표할 수 있습니다.",
@@ -690,7 +746,15 @@ export const createRidePlan = onCall({ region }, async (request) => {
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
-  const batch = db.batch();
+  await db.runTransaction(async (batch) => {
+  const userRef = db.collection("users").doc(userId);
+  await batch.get(userRef);
+  if (data.purpose === "group") {
+    const hosted = await batch.get(db.collection("rides").where("hostId", "==", userId));
+    const count = hosted.docs.filter(row => row.data().purpose !== "solo" && !row.data().lifecycleDeletedAt).length;
+    if (groupLimitReached(data.purpose, count))
+      throw new HttpsError("resource-exhausted", "함께 라이딩은 계정당 최대 4개까지 만들 수 있습니다. 기존 방이 정리된 후 다시 만들어 주세요.");
+  }
   batch.set(courseRef, course);
   batch.set(rideRef, ride);
   batch.set(db.collection("rideMembers").doc(`${rideRef.id}_${userId}`), {
@@ -708,7 +772,7 @@ export const createRidePlan = onCall({ region }, async (request) => {
     },
     { merge: true },
   );
-  await batch.commit();
+  });
   return { id: rideRef.id };
 });
 
@@ -757,7 +821,6 @@ export const listMyRidePlans = onCall({ region }, async (request) => {
   const memberships = await db
     .collection("rideMembers")
     .where("userId", "==", request.auth!.uid)
-    .limit(50)
     .get();
   const archiveRows = await Promise.all(
     memberships.docs.map((member) =>
@@ -771,13 +834,13 @@ export const listMyRidePlans = onCall({ region }, async (request) => {
     ),
   );
   const rows = rideRows
-    .filter((row) => row.exists)
+    .filter((row) => row.exists && !row.data()?.lifecycleDeletedAt)
     .sort(
       (a, b) =>
         (b.data()?.createdAt?.toMillis?.() ?? 0) -
         (a.data()?.createdAt?.toMillis?.() ?? 0),
     )
-    .slice(0, 30);
+    ;
   const courseIds = rows.map((row) => row.data()!.courseId).filter(Boolean);
   const courseRows = await Promise.all(
     courseIds.map((id) => db.collection("courses").doc(id).get()),
@@ -949,6 +1012,8 @@ export const startRide = onCall({ region }, async (request) => {
     const ride = await tx.get(rideRef);
     if (!ride.exists) throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
     const data = ride.data()!;
+    if (data.lifecycleDeletedAt || (data.startsAt?.toMillis?.() && Date.now() >= data.startsAt.toMillis() + 86400000))
+      throw new HttpsError("failed-precondition", "출발 예정 시각에서 하루가 지나 만료된 라이딩입니다.");
     if (data.hostId !== request.auth!.uid)
       throw new HttpsError("permission-denied", "방장만 라이딩을 시작할 수 있습니다.");
     if (!["모집중", "마감", "계획"].includes(String(data.status)))

@@ -226,26 +226,42 @@ function PlacePicker({
   const [selected, setSelected] = useState<PlaceSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [searched, setSearched] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
+    setResults([]);
+    setSearchError("");
+    setSearched(false);
+    setActiveIndex(-1);
     if (selected || query.trim().length < 2) {
-      setResults([]);
+      setLoading(false);
       return;
     }
     let active = true;
+    setLoading(true);
     const timer = window.setTimeout(() => {
-      setLoading(true);
       void searchPlaces(query)
-        .then((rows) => active && setResults(rows))
-        .catch(() => active && setResults([]))
-        .finally(() => active && setLoading(false));
+        .then((rows) => { if (active) setResults(rows); })
+        .catch((error: unknown) => { if (active) setSearchError(error instanceof Error ? error.message : "장소를 검색하지 못했습니다."); })
+        .finally(() => { if (active) { setLoading(false); setSearched(true); } });
     }, 250);
     return () => {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [query, selected]);
+  }, [query, selected, retry]);
   const listId = `${name}-place-results`;
+  const selectPlace = (place: PlaceSearchResult) => {
+    setSelected(place);
+    setQuery(place.name);
+    setResults([]);
+    setTouched(false);
+    setActiveIndex(-1);
+    inputRef.current?.focus();
+  };
   return (
     <div className="place-field">
       <label htmlFor={`${name}-query`}>{label}</label>
@@ -258,9 +274,26 @@ function PlacePicker({
           autoComplete="off"
           value={query}
           placeholder={placeholder}
+          role="combobox"
           aria-controls={listId}
           aria-expanded={results.length > 0}
           aria-autocomplete="list"
+          aria-describedby={`${name}-place-help`}
+          aria-activedescendant={activeIndex >= 0 && results[activeIndex] ? `${name}-option-${activeIndex}` : undefined}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") { setResults([]); setActiveIndex(-1); return; }
+            if (!results.length) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const next = event.key === "ArrowDown" ? (activeIndex + 1) % results.length : (activeIndex <= 0 ? results.length - 1 : activeIndex - 1);
+              setActiveIndex(next);
+              document.getElementById(`${name}-option-${next}`)?.scrollIntoView({ block: "nearest" });
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              if (activeIndex >= 0) selectPlace(results[activeIndex]);
+              else setActiveIndex(0);
+            }
+          }}
           onBlur={() => setTouched(true)}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -292,25 +325,27 @@ function PlacePicker({
       )}
       {results.length > 0 && (
         <div className="place-results" id={listId} role="listbox" aria-label={`${label} 검색 결과`}>
-          {results.map((place) => (
+          {results.map((place, index) => (
             <button
+              id={`${name}-option-${index}`}
               type="button"
               role="option"
-              aria-selected={selected?.id === place.id}
+              aria-selected={activeIndex === index}
               key={place.id}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setSelected(place);
-                setQuery(place.name);
-                setResults([]);
-                setTouched(false);
-              }}
+              onClick={() => selectPlace(place)}
             >
               <b>{place.name}</b><span>{place.address}</span><small>{place.category}</small>
             </button>
           ))}
         </div>
       )}
+      <div className="place-help" id={`${name}-place-help`} role="status">
+        {!selected && searchError ? <><span>{searchError}</span><button type="button" className="text-button" onClick={() => setRetry((value) => value + 1)}>다시 검색</button></> :
+          !selected && searched && !loading && !results.length ? "검색 결과가 없습니다. 지역과 장소명을 함께 입력해 주세요. 예: 서울 양재 시민의숲" :
+          !selected && query.trim().length < 2 ? "두 글자 이상 입력하고 검색 결과에서 주소를 확인해 선택하세요." :
+          !selected && results.length > 0 ? `${results.length}개 장소를 찾았습니다. 방향키와 Enter로도 선택할 수 있어요.` : null}
+      </div>
       {touched && query && !selected && !loading && (
         <small className="place-warning">검색 결과에서 정확한 장소를 선택해 주세요.</small>
       )}
@@ -1537,8 +1572,12 @@ function RecommendationBasis({ candidate }: { candidate: RouteCandidate }) {
   const criteria = candidate.criteria;
   return (
     <article className="recommendation-basis" aria-label="추천 선정 기준">
-      <div><b>추천 기준</b><span>조건 오차 {candidate.score ?? 0}점 · 낮을수록 적합</span></div>
+      <div><b>추천 기준</b><span>{Number.isFinite(candidate.score) ? `조건 오차 ${candidate.score}점 · 낮을수록 적합` : "이 코스의 평가 점수가 없습니다"}</span></div>
       <p>목표 대비 거리 오차 70%와 km당 상승고도 오차 30%를 합산합니다. 계산된 후보 중 총 오차가 가장 낮은 코스가 1순위입니다.</p>
+      {criteria && <p>희망 조건: {criteria.targetDistanceKm}km · 누적 상승 약 {Math.round(criteria.targetDistanceKm * criteria.targetClimbRate)}m. m/km는 전체 누적 상승고도를 거리로 나눈 값으로, 순간 경사도와 다릅니다.</p>}
+      {criteria && [criteria.distanceErrorPercent, criteria.uphillErrorPercent, criteria.weightedDistanceError, criteria.weightedUphillError].every(Number.isFinite) && <details className="score-details">
+      <summary>오차 점수 계산 보기</summary>
+      <p>각 오차(%) = |실제 값 − 목표 값| ÷ 목표 값 × 100. 표시값은 반올림되어 합계에 작은 차이가 있을 수 있습니다.</p>
       <div className="score-formula" aria-label="추천 점수 계산 내역">
         <span>거리 오차 {criteria?.distanceErrorPercent ?? 0}% × 0.7 = <b>{criteria?.weightedDistanceError ?? 0}</b></span>
         <i aria-hidden="true">+</i>
@@ -1546,6 +1585,7 @@ function RecommendationBasis({ candidate }: { candidate: RouteCandidate }) {
         <i aria-hidden="true">=</i>
         <strong>{candidate.score ?? 0}점</strong>
       </div>
+      </details>}
       <div className="criteria-bars">
         <span><i style={{ width: `${criteria?.distanceMatchPercent ?? 0}%` }} /><b>거리 적합도 {criteria?.distanceMatchPercent ?? 0}%</b><small>목표 {criteria?.targetDistanceKm ?? "-"}km · 차이 {candidate.distanceDifferenceKm}km</small></span>
         <span><i style={{ width: `${criteria?.uphillMatchPercent ?? 0}%` }} /><b>업힐 적합도 {criteria?.uphillMatchPercent ?? 0}%</b><small>목표 {criteria?.targetClimbRate ?? "-"}m/km · 실제 {candidate.climbRate}m/km</small></span>

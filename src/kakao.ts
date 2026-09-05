@@ -108,7 +108,8 @@ export async function searchPlaces(query: string): Promise<PlaceSearchResult[]> 
   const normalized = query.trim();
   if (normalized.length < 2) return [];
   const kakao = await loadKakaoMaps();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("장소 검색 응답이 늦어지고 있습니다. 다시 검색해 주세요.")), 10000);
     const places = new kakao.maps.services.Places();
     places.keywordSearch(
       normalized,
@@ -124,18 +125,19 @@ export async function searchPlaces(query: string): Promise<PlaceSearchResult[]> 
           x: string;
         }>,
         status: string,
-      ) => resolve(
-        status === kakao.maps.services.Status.OK
-          ? results.slice(0, 7).map((row) => ({
+      ) => {
+        window.clearTimeout(timer);
+        if (status === kakao.maps.services.Status.ZERO_RESULT) return resolve([]);
+        if (status !== kakao.maps.services.Status.OK) return reject(new Error("장소 검색에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."));
+        resolve(results.slice(0, 7).map((row) => ({
               id: row.id,
               name: row.place_name,
               address: row.road_address_name || row.address_name || "주소 정보 없음",
               category: row.category_group_name || row.category_name?.split(" > ").at(-1) || "장소",
               lat: Number(row.y),
               lng: Number(row.x),
-            }))
-          : [],
-      ),
+            })));
+      },
     );
   });
 }

@@ -833,13 +833,15 @@ const serialize = (row: FirebaseFirestore.DocumentSnapshot) => {
 export const listPublicRides = onCall({ region }, async (request) => {
   const rows = await db
     .collection("rides")
-    .where("visibility", "==", "public")
+    .where("status", "in", ["모집중", "마감"])
+    .where("startsAt", ">", new Date())
+    .orderBy("startsAt", "asc")
     .limit(60)
     .get();
   const blockedIds = new Set<string>();
   if (request.auth?.uid) { const [mine, byOthers] = await Promise.all([db.collection("userBlocks").where("ownerId", "==", request.auth.uid).get(), db.collection("userBlocks").where("targetUserId", "==", request.auth.uid).get()]); mine.docs.forEach(row=>blockedIds.add(String(row.data().targetUserId))); byOthers.docs.forEach(row=>blockedIds.add(String(row.data().ownerId))); }
   const visible = rows.docs
-    .filter((row) => ["모집중", "마감"].includes(String(row.data().status)) && (row.data().startsAt?.toMillis?.() ?? 0) > Date.now() && !blockedIds.has(String(row.data().hostId)) && !hasBlockedRideContent(String(row.data().title ?? ""), String(row.data().description ?? "")))
+    .filter((row) => row.data().visibility === "public" && !blockedIds.has(String(row.data().hostId)) && !hasBlockedRideContent(String(row.data().title ?? ""), String(row.data().description ?? "")))
     .sort(
       (a, b) =>
         (a.data().startsAt?.toMillis?.() ?? 0) -

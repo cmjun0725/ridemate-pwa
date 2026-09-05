@@ -136,6 +136,14 @@ header {
   background: #dff1e9;
 }
 #notification-settings { scroll-margin-top: 92px; }
+.place-help { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #64736c; font-size: 12px; line-height: 1.6; }
+.place-help:empty { display: none; }
+.place-field .place-results button[aria-selected="true"] { background: #e0f2e9; outline: 2px solid #168266; outline-offset: -2px; }
+.score-details summary { cursor: pointer; padding-block: 10px; font-size: 12px; font-weight: 700; }
+@media (prefers-color-scheme: dark) {
+  .place-help { color: #adbbb6; }
+  .place-field .place-results button[aria-selected="true"] { background: #234a3c; outline-color: #72d4b2; }
+}
 .place-field .place-selection small, .detail .route-endpoints em {
   white-space: normal;
   overflow-wrap: anywhere;

@@ -594,6 +594,21 @@ function FacilityList({ stops, loading = false, compact = false }: { stops: Stop
   );
 }
 
+type FacilityFilterValue = "전체" | Stop["kind"];
+const visibleFacilities = (stops: Stop[], filter: FacilityFilterValue) =>
+  filter === "전체" ? stops : stops.filter(stop => stop.kind === filter);
+function FacilityFilter({ stops, value, onChange }: { stops: Stop[]; value: FacilityFilterValue; onChange: (value: FacilityFilterValue) => void }) {
+  const kinds: FacilityFilterValue[] = ["전체", "편의점", "화장실", "정비소", ...(stops.some(stop => stop.kind === "휴식") ? ["휴식" as const] : [])];
+  return <div className="facility-filter" role="group" aria-label="주변 시설 필터">
+    {kinds.map(kind => {
+      const count = kind === "전체" ? stops.length : stops.filter(stop => stop.kind === kind).length;
+      return <button type="button" key={kind} disabled={kind !== "전체" && count === 0} aria-pressed={value === kind} className={value === kind ? "active" : ""} onClick={() => onChange(kind)}>
+        {kind === "정비소" ? "정비점" : kind}<span>{count}</span>
+      </button>;
+    })}
+  </div>;
+}
+
 function ElevationChart({ points }: { points: ElevationPoint[] }) {
   points = points.filter(p => Number.isFinite(p.distanceKm) && Number.isFinite(p.elevationM) && p.distanceKm >= 0).sort((a, b) => a.distanceKm - b.distanceKm);
   if (points.length < 2) return null;
@@ -637,14 +652,15 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
           <line x1={padX} x2={width - padX} y1={padTop + ratio * (height - padTop - padBottom)} y2={padTop + ratio * (height - padTop - padBottom)} stroke="currentColor" opacity="0.12" />
           <text x={padX - 5} y={padTop + ratio * (height - padTop - padBottom) + 4} textAnchor="end">{Math.round(ceiling - range * ratio)}m</text>
         </g>)}
+        {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
+          const x = padX + ratio * (width - padX * 2);
+          return <g key={`distance-${ratio}`}>
+            <line x1={x} x2={x} y1={padTop} y2={height - padBottom} stroke="currentColor" opacity="0.08" />
+            <text x={x} y={height - 6} textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"}>{(distance * ratio).toFixed(ratio === 0 ? 0 : 1)}km</text>
+          </g>;
+        })}
         <path className="elevation-area" d={area} />
         <path className="elevation-line" d={line} />
-        <text x={padX} y={height - 6}>
-          0km
-        </text>
-        <text x={width - padX} y={height - 6} textAnchor="end">
-          {distance.toFixed(1)}km
-        </text>
       </svg>
       <small>지형 데이터 기반 추정치 · 교량·터널·실제 노면 높이와 다를 수 있어요. 세로축은 최소 30m 범위로 표시합니다.</small>
     </article>
@@ -720,6 +736,7 @@ function RideDetail({
   const [selectedStopIds, setSelectedStopIds] = useState<string[]>(
     () => (ride.course.stops ?? []).filter((stop) => stop.selected).map((stop) => stop.id),
   );
+  const [facilityFilter, setFacilityFilter] = useState<FacilityFilterValue>("전체");
   const [savingStops, setSavingStops] = useState(false);
   const detailRoute = storedDetailRoute.length >= 2 ? storedDetailRoute : recoveredDetailRoute;
   const detailMapRoutes = useMemo(
@@ -943,6 +960,7 @@ function RideDetail({
   const isHost = auth?.currentUser?.uid === ride.hostId;
   const members = ride.members ?? [];
   const stops = detailStops;
+  const mapStops = visibleFacilities(stops, facilityFilter);
   const durationMinutes = estimatedMinutes(ride.course.distanceKm, ride.paceKmh);
   const shareRide = async () => {
     const url = new URL(window.location.href);
@@ -989,12 +1007,13 @@ function RideDetail({
         <CourseMap
           routes={detailMapRoutes}
           label={ride.course.title}
-          stops={detailStops}
+          stops={mapStops}
           climbSegments={ride.course.climbSegments ?? []}
           liveLocations={liveLocations}
           missingRouteMessage={detailRouteMessage}
         />
       )}
+      {stops.length > 0 && <FacilityFilter stops={stops} value={facilityFilter} onChange={setFacilityFilter} />}
       <div className="ride-flow" aria-label="라이딩 진행 단계">
         <span className="done">1 코스 선정</span>
         <span className={ride.status !== "계획" ? "done" : ""}>2 인원 모집</span>
@@ -1242,8 +1261,8 @@ function RideDetail({
             )}
             {stops.length > 0 && (
               <details className="nearby-facilities">
-                <summary>코스 주변 추천 시설 {stops.length}곳 보기</summary>
-                <FacilityList stops={stops} />
+                <summary>코스 주변 추천 시설 {mapStops.length}곳 보기</summary>
+                <FacilityList stops={mapStops} />
               </details>
             )}
           </>
@@ -1504,11 +1523,10 @@ function CommonRideFields({ solo }: { solo: boolean }) {
               max="49"
               defaultValue="5"
             />
-            <small>방장 제외 · 1~49명 / 함께 라이딩 방은 계정당 최대 4개</small>
+            <small>방장 제외 · 1~49명</small>
           </label>
         )}
       </div>
-      <p className="form-hint">{solo ? "개인 계획은 개수 제한이 없으며, 일정이 없으면 자동 만료되지 않습니다. " : ""}출발 시간에 알림을 보냅니다. 미출발 시 예정 시간 + 24시간, 출발 후에는 거리 ÷ 평속으로 계산한 예상 종료 시간 + 24시간에 방이 자동 정리됩니다. 참여자가 없으면 정리됩니다.</p>
       {!solo && (
         <label>
           집합 위치 상세 안내 <span className="optional">선택</span>
@@ -1577,15 +1595,23 @@ function CandidateResults({
   solo: boolean;
   draft?: Partial<RidePlanInput>;
 }) {
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => {
+    try {
+      const saved = Number(sessionStorage.getItem("ridemate-create-selected") ?? 0);
+      return Number.isInteger(saved) && saved >= 0 && saved < candidates.length ? saved : 0;
+    } catch { return 0; }
+  });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [pois, setPois] = useState<Stop[]>([]);
   const [poisLoading, setPoisLoading] = useState(false);
+  const [facilityFilter, setFacilityFilter] = useState<FacilityFilterValue>("전체");
+  const filteredPois = useMemo(() => visibleFacilities(pois, facilityFilter), [pois, facilityFilter]);
   const candidateMapRoutes = useMemo(
     () => candidates.map((candidate) => candidate.coordinates),
     [candidates],
   );
+  useEffect(() => { try { sessionStorage.setItem("ridemate-create-selected", String(selected)); } catch { /* Private storage may be unavailable. */ } }, [selected]);
   useEffect(() => {
     let active = true;
     setPoisLoading(true);
@@ -1646,6 +1672,8 @@ function CandidateResults({
       });
       await trackProductEvent("course_created");
       sessionStorage.removeItem("ridemate-create-draft");
+      sessionStorage.removeItem("ridemate-create-work");
+      sessionStorage.removeItem("ridemate-create-selected");
       onCreated();
     } catch (error) {
       setSaveError(
@@ -1661,7 +1689,6 @@ function CandidateResults({
     <section className="candidate-results">
       <div className="result-head">
         <div>
-          <span className="eyebrow">자전거 경로·고도 검증 완료</span>
           <h2>추천 코스 {candidates.length}개</h2>
         </div>
         <button className="text-button" onClick={onReset}>
@@ -1672,7 +1699,7 @@ function CandidateResults({
         routes={candidateMapRoutes}
         selected={selected}
         label="추천 후보 비교"
-        stops={pois}
+        stops={filteredPois}
         climbSegments={candidates[selected]?.climbSegments ?? []}
       />
       <ElevationChart points={candidates[selected]?.elevationProfile ?? []} />
@@ -1686,7 +1713,7 @@ function CandidateResults({
           ))}
         </article>
       )}
-      <article className="poi-summary"><b>코스 주변 시설</b><FacilityList stops={pois} loading={poisLoading} compact /></article>
+      <article className="poi-summary"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poisLoading} compact /></article>
       <div className="candidate-list">
         {candidates.map((candidate, index) => (
           <button
@@ -1734,6 +1761,8 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
   const [pois, setPois] = useState<Stop[]>([]);
   const [loading, setLoading] = useState(false);
   const [poiLoading, setPoiLoading] = useState(false);
+  const [facilityFilter, setFacilityFilter] = useState<FacilityFilterValue>("전체");
+  const filteredPois = useMemo(() => visibleFacilities(pois, facilityFilter), [pois, facilityFilter]);
   const [error, setError] = useState("");
   useEffect(() => {
     const route = candidates[selected]?.coordinates;
@@ -1751,15 +1780,15 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
     return (
       <section className="page course-explorer explorer-results">
         <div className="result-head">
-          <div><span className="eyebrow">로그인 없이 탐색한 결과</span><h1>주변 코스 {candidates.length}개</h1></div>
+          <div><h1>주변 코스 {candidates.length}개</h1></div>
           <button className="text-button" onClick={() => { setCandidates([]); setPois([]); }}>조건 수정</button>
         </div>
-        <CourseMap routes={candidates.map((row) => row.coordinates)} selected={selected} stops={pois} climbSegments={candidate.climbSegments} label="주변 코스 탐색 결과" />
+        <CourseMap routes={candidates.map((row) => row.coordinates)} selected={selected} stops={filteredPois} climbSegments={candidate.climbSegments} label="주변 코스 탐색 결과" />
         <div className="explorer-grid">
           <div>
             <ElevationChart points={candidate.elevationProfile} />
             <RecommendationBasis candidate={candidate} />
-            <article className="poi-summary"><b>코스 주변 시설</b><FacilityList stops={pois} loading={poiLoading} compact /></article>
+            <article className="poi-summary"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poiLoading} compact /></article>
           </div>
           <div className="candidate-list">
             {candidates.map((row, index) => (
@@ -1777,7 +1806,6 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
   }
   return (
     <section className="page course-explorer">
-      <span className="eyebrow">빠른 코스 탐색</span>
       <h1>주변 자전거 코스 찾기</h1>
       <p className="sub">로그인이나 라이딩 생성 없이 출발지 주변의 거리·고도 검증 코스를 확인하세요.</p>
       <form onSubmit={async (event) => {
@@ -1816,6 +1844,8 @@ function ManualRouteReview({ plan, via, busy, error, onEdit, onApprove }: {
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [visible, setVisible] = useState(false);
+  const [facilityFilter, setFacilityFilter] = useState<FacilityFilterValue>("전체");
+  const filteredStops = visibleFacilities(plan.stops ?? [], facilityFilter);
   const routes = useMemo(() => [plan.coordinates ?? []], [plan.coordinates]);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -1824,12 +1854,13 @@ function ManualRouteReview({ plan, via, busy, error, onEdit, onApprove }: {
     return () => dialog?.close();
   }, []);
   return <dialog ref={dialogRef} className="manual-route-review" aria-labelledby="manual-review-title" onCancel={(event) => { event.preventDefault(); if (!busy) onEdit(); }}>
-    <div className="manual-review-heading"><div><h2 id="manual-review-title">코스를 확인하고 승인해 주세요</h2><p>아직 {plan.purpose === "solo" ? "계획이 저장되지" : "방이 만들어지지"} 않았습니다.</p></div><button type="button" className="secondary" disabled={busy} onClick={onEdit}>입력 수정</button></div>
+    <div className="manual-review-heading"><div><h2 id="manual-review-title">코스를 확인하고 승인해 주세요</h2><p>아직 {plan.purpose === "solo" ? "계획이 저장되지" : "방이 만들어지지"} 않았습니다.</p></div></div>
     <p className="manual-review-path">{plan.startName} → {via ? `${via} (반환점) → ${plan.startName}` : plan.endName}</p>
-    {visible && <CourseMap routes={routes} stops={plan.stops ?? []} climbSegments={plan.climbSegments ?? []} label="승인 전 자전거 코스 확인" />}
+    {visible && <CourseMap routes={routes} stops={filteredStops} climbSegments={plan.climbSegments ?? []} label="승인 전 자전거 코스 확인" />}
     <div className="manual-review-summary"><b>{via ? "왕복 전체" : "편도"} {plan.distanceKm}km</b><b>누적 상승 {plan.elevationM ?? 0}m</b><span>평속 {plan.paceKmh}km/h</span><span>{fmt(plan.startsAt ?? "")}</span>{plan.purpose === "group" && <span>방장 포함 {plan.capacity}명</span>}</div>
     <ElevationChart points={plan.elevationProfile ?? []} />
-    <FacilityList stops={plan.stops ?? []} compact />
+    {(plan.stops?.length ?? 0) > 0 && <FacilityFilter stops={plan.stops ?? []} value={facilityFilter} onChange={setFacilityFilter} />}
+    <FacilityList stops={filteredStops} compact />
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="manual-review-actions"><button type="button" className="secondary" disabled={busy} onClick={onEdit}>돌아가서 수정</button><button type="button" className="primary" disabled={busy} onClick={onApprove}>{busy ? "저장 중…" : plan.purpose === "solo" ? "이 코스 승인하고 계획 저장" : "이 코스 승인하고 방 만들기"}</button></div>
   </dialog>;
@@ -1838,22 +1869,42 @@ function ManualRouteReview({ plan, via, busy, error, onEdit, onApprove }: {
 function CreateRide({
   onCreated,
   onLogin,
+  onBack,
 }: {
   onCreated: () => void;
   onLogin: () => void;
+  onBack: () => void;
 }) {
-  const [purpose, setPurpose] = useState<"group" | "solo">("group");
-  const [mode, setMode] = useState<"guided" | "manual">("guided");
-  const [tripType, setTripType] = useState<"round" | "oneway">("round");
-  const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
-  const [draft, setDraft] = useState<Partial<RidePlanInput>>({});
+  const restored = useRef<null | { purpose?: "group" | "solo"; mode?: "guided" | "manual"; tripType?: "round" | "oneway"; candidates?: RouteCandidate[]; draft?: Partial<RidePlanInput>; manualPreview?: { plan: RidePlanInput; via?: string } }>(null);
+  if (restored.current === null) {
+    try { restored.current = JSON.parse(sessionStorage.getItem("ridemate-create-work") ?? "{}"); }
+    catch { restored.current = {}; }
+  }
+  const initialWork = restored.current ?? {};
+  const [purpose, setPurpose] = useState<"group" | "solo">(initialWork.purpose ?? "group");
+  const [mode, setMode] = useState<"guided" | "manual">(initialWork.mode ?? "guided");
+  const [tripType, setTripType] = useState<"round" | "oneway">(initialWork.tripType ?? "round");
+  const [candidates, setCandidates] = useState<RouteCandidate[]>(initialWork.candidates ?? []);
+  const [draft, setDraft] = useState<Partial<RidePlanInput>>(initialWork.draft ?? {});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [manualDone, setManualDone] = useState(false);
   const [manualTrip, setManualTrip] = useState<"oneway" | "round">("oneway");
-  const [manualPreview, setManualPreview] = useState<{ plan: RidePlanInput; via?: string } | null>(null);
+  const [manualPreview, setManualPreview] = useState<{ plan: RidePlanInput; via?: string } | null>(initialWork.manualPreview ?? null);
   const savingManual = useRef(false);
   const solo = purpose === "solo";
+  useEffect(() => {
+    if (manualDone) {
+      try {
+        sessionStorage.removeItem("ridemate-create-work");
+        sessionStorage.removeItem("ridemate-create-draft");
+        sessionStorage.removeItem("ridemate-create-selected");
+      } catch { /* Storage may be unavailable in private browsing. */ }
+      return;
+    }
+    try { sessionStorage.setItem("ridemate-create-work", JSON.stringify({ purpose, mode, tripType, candidates, draft, manualPreview })); }
+    catch { /* The course remains available in memory for this screen. */ }
+  }, [purpose, mode, tripType, candidates, draft, manualPreview, manualDone]);
   const submitGuided = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!auth?.currentUser) {
@@ -1999,10 +2050,8 @@ function CreateRide({
   return (
     <section className="page create-page">
       {manualPreview && <ManualRouteReview plan={manualPreview.plan} via={manualPreview.via} busy={loading} error={error} onEdit={() => { setManualPreview(null); setError(""); }} onApprove={() => void approveManual()} />}
+      <button type="button" className="back create-back" onClick={onBack}>← 홈으로</button>
       <h1>{solo ? "혼자 라이딩 계획" : "라이딩 만들기"}</h1>
-      <p className="sub">
-        함께 달릴 방을 만들거나 나만의 코스를 계획할 수 있어요.
-      </p>
       {!auth?.currentUser && (
         <aside className="auth-required" role="status">
           <div>
@@ -2024,7 +2073,6 @@ function CreateRide({
         >
           <Users />
           <b>함께 라이딩</b>
-          <small>라이더를 모집해요</small>
         </button>
         <button
           className={solo ? "active" : ""}
@@ -2035,7 +2083,6 @@ function CreateRide({
         >
           <CircleUserRound />
           <b>혼자 라이딩</b>
-          <small>내 계획만 저장해요</small>
         </button>
       </div>
       <div className="mode-cards">
@@ -2048,7 +2095,6 @@ function CreateRide({
         >
           <Route />
           <b>조건으로 코스 찾기</b>
-          <small>거리와 업힐에 맞는 후보 비교</small>
         </button>
         <button
           className={mode === "manual" ? "active" : ""}
@@ -2059,7 +2105,6 @@ function CreateRide({
         >
           <MapPin />
           <b>모두 직접 입력</b>
-          <small>출발·도착·정차 정보를 수동 작성</small>
         </button>
       </div>
       {mode === "guided" && candidates.length ? (
@@ -2072,10 +2117,6 @@ function CreateRide({
         />
       ) : mode === "guided" ? (
         <form onSubmit={submitGuided}>
-          <article className="notice route-method">
-            <b>어디서, 얼마나 달리고 싶나요?</b>
-            <p>출발지와 희망 거리를 정하면 거리·고도에 맞는 코스를 찾아드려요.</p>
-          </article>
           <PlacePicker name="startName" label="출발 지점" placeholder="역·공원·정확한 장소명 검색" />
           <div className="two distance-row">
             <label>
@@ -2147,10 +2188,6 @@ function CreateRide({
         </form>
       ) : (
         <form onSubmit={submitManual}>
-          <article className="notice manual-guide">
-            <b>출발지와 도착지를 직접 정하세요</b>
-            <p>장소를 선택하고 큰 지도에서 경로를 확인하세요. 마지막 승인 버튼을 눌러야 저장됩니다.</p>
-          </article>
           <label>
             라이딩 제목
             <input
@@ -2659,6 +2696,8 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
   const [route, setRoute] = useState<Coordinate[]>(plan.course.coordinates ?? []);
   const mapRoutes = useMemo(() => [route], [route]);
   const [stops, setStops] = useState(plan.course.stops ?? []);
+  const [facilityFilter, setFacilityFilter] = useState<FacilityFilterValue>("전체");
+  const filteredStops = useMemo(() => visibleFacilities(stops, facilityFilter), [stops, facilityFilter]);
   const [loadingPois, setLoadingPois] = useState(false);
   const [routeRecovery, setRouteRecovery] = useState<"idle" | "loading" | "error">("idle");
   const [routeMessage, setRouteMessage] = useState("이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.");
@@ -2712,11 +2751,12 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
         <CourseMap
           routes={mapRoutes}
           label={`${plan.title} 저장 코스`}
-          stops={stops}
+          stops={filteredStops}
           climbSegments={plan.course.climbSegments ?? []}
           missingRouteMessage={routeMessage}
         />
       )}
+      {stops.length > 0 && <FacilityFilter stops={stops} value={facilityFilter} onChange={setFacilityFilter} />}
       <div className="detail-head">
         <div><span className="eyebrow">{status}</span><h1>{plan.title}</h1><p>{plan.startsAt ? fmt(plan.startsAt) : "날짜·시간 미정"}</p></div>
         {status === "진행중" ? (
@@ -2739,7 +2779,7 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
       <article className="info">
         <h2>코스 주변 편의시설</h2>
         {poiError && <div role="alert"><p>{poiError}</p><button className="secondary" onClick={() => setPoiRetry(value => value + 1)}>편의시설 다시 불러오기</button></div>}
-        <FacilityList stops={stops} loading={loadingPois} />
+        <FacilityList stops={filteredStops} loading={loadingPois} />
       </article>
       {plan.description && <article className="info"><h2>라이딩 메모</h2><p>{plan.description}</p></article>}
     </section>
@@ -2776,6 +2816,51 @@ function SavedGroupRide({ plan, onBack }: { plan: SavedPlan; onBack: () => void 
   );
 }
 
+const localDateKey = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+function RideCalendar({ plans, selectedDate, onSelectDate }: { plans: SavedPlan[]; selectedDate: string; onSelectDate: (date: string) => void }) {
+  const initial = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const next = plans
+      .filter(plan => localDateKey(plan.startsAt) && new Date(plan.startsAt ?? 0).getTime() >= today.getTime())
+      .sort((a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime())[0];
+    const source = next?.startsAt ? new Date(next.startsAt) : new Date();
+    return new Date(source.getFullYear(), source.getMonth(), 1);
+  }, [plans]);
+  const [month, setMonth] = useState(initial);
+  useEffect(() => setMonth(initial), [initial]);
+  const counts = useMemo(() => plans.reduce<Record<string, number>>((result, plan) => {
+    const key = localDateKey(plan.startsAt);
+    if (key) result[key] = (result[key] ?? 0) + 1;
+    return result;
+  }, {}), [plans]);
+  const firstOffset = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
+  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const todayKey = localDateKey(new Date().toISOString());
+  return <section className="ride-calendar" aria-label="내 라이딩 캘린더">
+    <div className="calendar-head">
+      <button type="button" aria-label="이전 달" onClick={() => setMonth(value => new Date(value.getFullYear(), value.getMonth() - 1, 1))}>‹</button>
+      <h2>{month.getFullYear()}년 {month.getMonth() + 1}월</h2>
+      <button type="button" aria-label="다음 달" onClick={() => setMonth(value => new Date(value.getFullYear(), value.getMonth() + 1, 1))}>›</button>
+    </div>
+    <div className="calendar-weekdays" aria-hidden="true">{["일", "월", "화", "수", "목", "금", "토"].map(day => <span key={day}>{day}</span>)}</div>
+    <div className="calendar-days">{Array.from({ length: firstOffset + days }, (_, index) => {
+      if (index < firstOffset) return <span className="calendar-empty" key={`empty-${index}`} />;
+      const day = index - firstOffset + 1;
+      const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const count = counts[key] ?? 0;
+      return <button type="button" key={key} className={`${selectedDate === key ? "selected" : ""} ${todayKey === key ? "today" : ""}`.trim()} aria-pressed={selectedDate === key} aria-current={todayKey === key ? "date" : undefined} aria-label={`${month.getMonth() + 1}월 ${day}일${todayKey === key ? ", 오늘" : ""}${count ? `, 라이딩 ${count}개` : ""}`} onClick={() => onSelectDate(selectedDate === key ? "" : key)}>
+        <span>{day}</span>{count > 0 && <b>{count}</b>}
+      </button>;
+    })}</div>
+  </section>;
+}
+
 function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => void }) {
   const [revision, setRevision] = useState(0);
   const [plans, setPlans] = useState<SavedPlan[]>(readPlans);
@@ -2786,6 +2871,7 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
   const [loadError, setLoadError] = useState("");
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState("");
   useEffect(() => {
     if (!auth) return;
     let active = true;
@@ -2822,15 +2908,16 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
       </section>
     );
   if (selected) return selected.purpose === "group" ? <SavedGroupRide plan={selected} onBack={returnToList} /> : <SavedRideDetail plan={selected} onBack={returnToList} />;
+  const visiblePlans = selectedDate ? plans.filter(plan => localDateKey(plan.startsAt) === selectedDate) : plans;
   return (
     <section className="page">
-      <h1>내 라이딩</h1>
-      <button className="secondary" disabled={loading} onClick={() => setRevision(value => value + 1)}>{loading ? "불러오는 중…" : "목록 새로고침"}</button>
-      <p className="sub">저장한 코스와 모집 방을 누르면 경로·업힐·편의시설을 확인할 수 있어요.</p>
+      <div className="my-rides-head"><h1>내 라이딩</h1><button className="secondary" disabled={loading} onClick={() => setRevision(value => value + 1)}>{loading ? "불러오는 중…" : "새로고침"}</button></div>
+      <RideCalendar plans={plans} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+      <div className="section-title"><div><h2>{selectedDate ? `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정` : "전체 일정"}</h2><small>{visiblePlans.length}개</small></div>{selectedDate && <button onClick={() => setSelectedDate("")}>전체 보기</button>}</div>
       <div className="list">
         {loading && <div className="skeleton-card" aria-label="내 라이딩 불러오는 중" />}
         {loadError && <p className="form-error" role="alert">{loadError}</p>}
-        {plans.map((plan) => (
+        {visiblePlans.map((plan) => (
           <article className="saved-plan" key={plan.id}>
             <button className="saved-plan-button" onClick={() => setSelected(plan)}>
               <span>{plan.purpose === "solo" ? "혼자 라이딩" : plan.status}</span>
@@ -2881,12 +2968,10 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
             )}
           </article>
         ))}
-        {!loading && !loadError && !plans.length && (
+        {!loading && !loadError && !visiblePlans.length && (
           <div className="empty">
-            <p>아직 저장한 라이딩이 없습니다.</p>
-            <button className="secondary wide" onClick={onCreate}>
-              <Plus size={16} aria-hidden="true" /> 첫 라이딩 만들기
-            </button>
+            <p>{selectedDate ? "이 날짜에는 라이딩이 없습니다." : "아직 저장한 라이딩이 없습니다."}</p>
+            {!selectedDate && <button className="secondary wide" onClick={onCreate}><Plus size={16} aria-hidden="true" /> 첫 라이딩 만들기</button>}
           </div>
         )}
       </div>
@@ -3049,7 +3134,7 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
     }} />
   ) : tab === "create" ? (
-    <CreateRide onCreated={() => setTab("my")} onLogin={() => setTab("profile")} />
+    <CreateRide onCreated={() => setTab("my")} onLogin={() => setTab("profile")} onBack={() => setTab("home")} />
   ) : tab === "courses" ? (
     <CourseExplorer onCreate={() => setTab("create")} />
   ) : tab === "my" ? (
@@ -3059,17 +3144,15 @@ export default function App() {
   ) : (
     <section className="page home-page">
       <div className="hero">
-        <span>함께 달리는 더 안전한 라이딩</span>
         <h1>
-          오늘, 누구와
+          오늘 함께 달릴
           <br />
-          어디로 달릴까요?
+          라이딩을 찾아보세요
         </h1>
-        <button className="hero-action" onClick={() => setTab("create")}>
-          <Plus size={18} />
-          라이딩 만들기
-        </button>
+        <p>거리와 평속을 비교하고, 코스와 참여자를 확인한 뒤 안전하게 출발하세요.</p>
       </div>
+      <section className="home-search-panel" aria-labelledby="ride-search-title">
+      <h2 id="ride-search-title">라이딩 찾기</h2>
       <div className="search" role="search">
         <Search size={18} aria-hidden="true" />
         <input
@@ -3109,6 +3192,7 @@ export default function App() {
         </button>
         {hasActiveFilters && <button className="reset" onClick={resetFilters}>초기화</button>}
       </div>
+      </section>
       <div className="section-title">
         <div>
           <h2>{hasActiveFilters ? "검색 결과" : "지금 모집 중인 라이딩"}</h2>

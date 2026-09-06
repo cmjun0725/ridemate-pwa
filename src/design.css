@@ -168,3 +168,59 @@ header { background:var(--rm-bg); }
   .course-explorer { max-width:900px; }
   .explorer-results { max-width:1180px; }
 }
+
+/* Focused home discovery */
+.home-page { display:grid; gap:20px; }
+.home-page .hero { margin:0; display:flex; flex-direction:column; justify-content:center; }
+.home-page .hero p { max-width:520px; margin:14px 0 0; color:#c7e0d3; font-size:15px; line-height:1.7; }
+.home-search-panel { display:grid; align-content:start; gap:14px; padding:20px; border:1px solid var(--rm-line); border-radius:20px; background:var(--rm-surface); }
+.home-search-panel h2 { margin:0; font-size:20px; }
+.home-search-panel .search { margin:0; }
+.home-search-panel .filter-bar { margin:0; }
+.home-search-panel .quick-filters { margin:0; }
+.home-page .home-search-panel .search,.home-page .home-search-panel .filter-bar,.home-page .home-search-panel .quick-filters { grid-column:auto; }
+
+/* Facility controls apply to both the map and the matching list. */
+.facility-filter { display:flex; gap:7px; margin:12px 0; padding:2px; overflow-x:auto; scrollbar-width:none; }
+.facility-filter::-webkit-scrollbar { display:none; }
+.facility-filter button { display:flex; align-items:center; gap:6px; flex:0 0 auto; min-height:38px; padding:8px 12px; border:1px solid var(--rm-line); border-radius:999px; background:var(--rm-surface); color:var(--rm-muted); font-size:12px; font-weight:700; }
+.facility-filter button span { display:grid; place-items:center; min-width:19px; height:19px; padding:0 5px; border-radius:999px; background:var(--rm-soft); font-size:10px; }
+.facility-filter button.active { border-color:var(--rm-accent); background:var(--rm-selected); color:var(--rm-accent); }
+.facility-filter button:disabled { cursor:not-allowed; opacity:.42; }
+
+/* Calendar keeps dated plans scannable without hiding undated plans. */
+.my-rides-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.ride-calendar { margin:18px 0 24px; padding:18px; border:1px solid var(--rm-line); border-radius:18px; background:var(--rm-surface); }
+.calendar-head { display:grid; grid-template-columns:42px 1fr 42px; align-items:center; margin-bottom:12px; }
+.calendar-head h2 { margin:0; text-align:center; font-size:18px; }
+.calendar-head button { width:38px; height:38px; border-radius:50%; color:var(--rm-muted); font-size:25px; }
+.calendar-head button:hover { background:var(--rm-soft); color:var(--rm-text); }
+.calendar-weekdays,.calendar-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; }
+.calendar-weekdays span { padding:5px 0; color:var(--rm-muted); font-size:11px; font-weight:700; text-align:center; }
+.calendar-days>button,.calendar-empty { aspect-ratio:1; min-width:0; }
+.calendar-days>button { position:relative; display:grid; place-items:center; border:1px solid transparent; border-radius:10px; color:var(--rm-text); font-size:13px; }
+.calendar-days>button:hover { background:var(--rm-soft); }
+.calendar-days>button.selected { border-color:var(--rm-accent); background:var(--rm-selected); color:var(--rm-accent); font-weight:800; }
+.calendar-days>button.today:not(.selected) { border-color:color-mix(in srgb,var(--rm-accent) 42%,transparent); font-weight:800; }
+.calendar-days>button b { position:absolute; right:3px; bottom:3px; display:grid; place-items:center; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--rm-accent); color:var(--rm-on-accent); font-size:9px; }
+
+/* Creation page prioritizes decisions and primary field labels. */
+.create-page>.create-back { justify-self:start; margin:0 0 8px; }
+.create-page>h1 { font-size:34px; margin-top:0; }
+.create-page .purpose-tabs button b { font-size:16px; }
+.create-page .mode-cards button b { font-size:15px; }
+.create-page form>label,.create-page form>fieldset>legend,.create-page .place-field>label,.create-page .date-time-title { font-size:15px; font-weight:750; }
+
+@media(min-width:900px) {
+  .home-page { grid-template-columns:minmax(0,1.2fr) minmax(360px,.8fr); align-items:stretch; }
+  .home-page>.hero { grid-column:1; grid-row:1; min-height:290px; }
+  .home-page>.home-search-panel { grid-column:2; grid-row:1; }
+  .home-page>.section-title,.home-page>.list { grid-column:1/-1; }
+  .create-page>.create-back { grid-column:1/-1; grid-row:1; }
+  .create-page>h1 { grid-column:1/-1; grid-row:2; }
+  .create-page>.auth-required { grid-column:1; grid-row:3; }
+  .create-page>.purpose-tabs { grid-column:1; grid-row:4; }
+  .create-page>.mode-cards { grid-column:1; grid-row:5; }
+  .create-page>form,.create-page>.candidate-results { grid-column:2; grid-row:3/span 6; }
+  .ride-calendar { max-width:720px; }
+}

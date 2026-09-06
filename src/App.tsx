@@ -74,7 +74,7 @@ import {
 } from "./services";
 import type { ClimbSegment, Coordinate, ElevationPoint, LiveLocation, Ride, RouteCandidate, Stop } from "./types";
 
-type Tab = "home" | "search" | "courses" | "create" | "my" | "profile";
+type Tab = "home" | "courses" | "create" | "my" | "profile";
 const fmt = (value: string) => !Number.isFinite(new Date(value).getTime()) ? "일정 미정" :
   new Intl.DateTimeFormat("ko-KR", {
     month: "long",
@@ -2899,7 +2899,8 @@ type InstallPromptEvent = Event & {
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     const view = new URLSearchParams(window.location.search).get("view");
-    return ["home", "search", "courses", "create", "my", "profile"].includes(String(view))
+    if (view === "search") return "home";
+    return ["home", "courses", "create", "my", "profile"].includes(String(view))
       ? (view as Tab)
       : "home";
   });
@@ -3107,14 +3108,10 @@ export default function App() {
       </div>
       <div className="section-title">
         <div>
-          <h2>{tab === "search" ? "검색 결과" : "지금 모집 중인 라이딩"}</h2>
+          <h2>{hasActiveFilters ? "검색 결과" : "지금 모집 중인 라이딩"}</h2>
           {!feedLoading && <small>{filtered.length}개의 라이딩</small>}
         </div>
-        {tab === "search" ? (
-          <button onClick={() => setFeedVersion((value) => value + 1)}>새로고침</button>
-        ) : (
-          <button onClick={() => setTab("search")}>전체 보기</button>
-        )}
+        <button onClick={() => setFeedVersion((value) => value + 1)}>새로고침</button>
       </div>
       <div className="list">
         {feedLoading && (
@@ -3236,9 +3233,8 @@ export default function App() {
           {(
             [
               ["home", "홈"],
-              ["search", "탐색"],
-              ["create", "만들기"],
               ["courses", "코스"],
+              ["create", "만들기"],
               ["my", "내 라이딩"],
             ] as [Tab, string][]
           ).map(([id, label]) => (              <button
@@ -3249,8 +3245,6 @@ export default function App() {
               >
               {id === "create" ? (
                 <Plus size={22} />
-              ) : id === "search" ? (
-                <Search size={21} />
               ) : id === "courses" ? (
                 <Compass size={21} />
               ) : id === "my" ? (
@@ -3264,7 +3258,7 @@ export default function App() {
         </nav>
       )}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {selected ? "라이딩 상세 화면으로 이동" : tab === "home" ? "홈 화면" : tab === "search" ? "라이딩 탐색 화면" : tab === "courses" ? "코스 탐색 화면" : tab === "create" ? "라이딩 만들기 화면" : tab === "my" ? "내 라이딩 화면" : "프로필 화면"}
+        {selected ? "라이딩 상세 화면으로 이동" : tab === "home" ? "홈 및 라이딩 탐색 화면" : tab === "courses" ? "코스 탐색 화면" : tab === "create" ? "라이딩 만들기 화면" : tab === "my" ? "내 라이딩 화면" : "프로필 화면"}
       </div>
       {showOnboarding && (
         <div className="modal-backdrop" onClick={finishOnboarding} onKeyDown={(e) => { if (e.key === "Escape") finishOnboarding(); }}>

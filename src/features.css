@@ -622,6 +622,7 @@ legend {
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 @media (prefers-color-scheme:dark){:root{background:#071712;color:#edf6f2}.app-shell,.initial-shell{background:#0d1d18;color:#edf6f2}.logo{color:#72d4b2}.page .sub,.ride-card p,.ride-date,.muted{color:#aebdb7}.ride-card,.mode-cards button,.purpose-tabs button,.candidate-card,.saved-plan,.info.chat,.legal-sheet,.onboarding,input,select,textarea{background:#142720;color:#edf6f2;border-color:#294239}.search,.elevation-card,.detail-actions button{background:#142720;border-color:#294239}.search input{color:#edf6f2}.section-title button,.text-button{color:#72d4b2}nav{background:#10221c;border-color:#294239}nav button.create-nav{border-color:#0d1d18}.notice,.verification-row,.chat-log p,.inline-panel{background:#172c24}.stat-grid span{background:#173329}.modal-backdrop{background:#000b}.legal-sheet p,.onboarding p{color:#b6c6c0}:focus-visible{outline-color:#72d4b2}.skip-nav{background:#72d4b2;color:#0d1d18}.form-error{background:#3d1a14;border:1px solid #6b2c20}.status-message{background:#0a3226;border:1px solid #165e42}}
 .admin-action-modal{width:min(100%,420px);align-self:center;background:#fff;border-radius:20px;padding:22px;display:grid;gap:14px}.admin-action-modal h2{margin:0;font-size:20px}.admin-action-modal p{margin:0;color:#65736d;font-size:12px;line-height:1.55}.social-login{border:1px solid #d8e2dc;background:#fff;color:#263a33;border-radius:12px;padding:10px 14px;font-weight:700;min-height:44px}
+.admin-user-search{display:grid;gap:8px;margin:0 0 16px;padding:16px;border:1px solid #dfe8e3;border-radius:14px;background:#f8faf9}.admin-user-search label{font-size:13px;font-weight:700}.admin-user-search>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.admin-user-search input{min-width:0;min-height:44px;border:1px solid #cad8d1;border-radius:10px;padding:0 12px;background:#fff;color:#20352d}.admin-user-search button{display:flex;align-items:center;gap:6px}
 .poi-summary{border:1px solid #dce7e1;border-radius:14px;padding:13px;background:#fff}.poi-summary>b{font-size:13px}.poi-summary>p{font-size:11px;color:#68756f;margin:5px 0}
 .facility-marker{display:flex;align-items:center;gap:4px;width:33px;max-width:168px;border:2px solid #fff;border-radius:18px;padding:3px;color:#fff;box-shadow:0 3px 11px #14251e55;font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;transform:translateZ(0);cursor:pointer;transition:width .15s ease,padding .15s ease;overflow:hidden}
 .facility-marker-icon{width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#fff;font-size:14px}
@@ -778,4 +779,7 @@ legend {
   .admin-empty { color: #91a39c; }
   .admin-error { background: #461f19; color: #ffc5ba; }
   .admin-action-modal p { color: #b6c6c0; }
+  .admin-user-search { background: #142720; border-color: #294239; }
+  .admin-user-search input { background: #0f201a; color: #edf6f2; border-color: #355046; }
+  .admin-list button.danger { background: #51251f; color: #ffd3ca; border-color: #7a3a30; }
 }

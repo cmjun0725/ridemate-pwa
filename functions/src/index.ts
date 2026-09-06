@@ -1568,17 +1568,105 @@ export const getAdminDashboard = onCall({ region }, async (request) => {
   };
 });
 
-export const adminModerate = onCall({ region }, async (request) => {
+export const adminFindUser = onCall({ region }, async (request) => {
   requireAdmin(request);
-  const { action, targetId, reason } = request.data as {
+  const email = String(request.data?.email ?? "").trim().toLowerCase();
+  if (!email || email.length > 254)
+    throw new HttpsError("invalid-argument", "검색할 회원 이메일을 확인해 주세요.");
+  try {
+    const authUser = await getAuth().getUserByEmail(email);
+    const profile = await db.collection("users").doc(authUser.uid).get();
+    return {
+      user: {
+        id: authUser.uid,
+        email: authUser.email ?? email,
+        displayName: authUser.displayName ?? profile.data()?.displayName ?? null,
+        status: authUser.disabled ? "suspended" : profile.data()?.status ?? "active",
+        noShowCount: Number(profile.data()?.noShowCount ?? 0),
+        isAdmin: authUser.customClaims?.admin === true,
+        createdAt: authUser.metadata.creationTime ?? null,
+      },
+    };
+  } catch (error) {
+    if ((error as { code?: string }).code === "auth/user-not-found")
+      throw new HttpsError("not-found", "해당 이메일로 가입한 회원이 없습니다.");
+    throw error;
+  }
+});
+
+export const adminModerate = onCall({ region, timeoutSeconds: 300 }, async (request) => {
+  requireAdmin(request);
+  const { action, targetId, reason, confirmationEmail } = request.data as {
     action?: string;
     targetId?: string;
     reason?: string;
+    confirmationEmail?: string;
   };
   if (!targetId || !action)
     throw new HttpsError("invalid-argument", "관리 작업 정보가 필요합니다.");
   const adminId = request.auth!.uid;
-  if (action === "suspend_user" || action === "activate_user") {
+  if (action === "delete_user") {
+    if (targetId === adminId)
+      throw new HttpsError("failed-precondition", "현재 로그인한 관리자 계정은 삭제할 수 없습니다.");
+    if (String(reason ?? "").trim().length < 5)
+      throw new HttpsError("invalid-argument", "강제 탈퇴 사유를 5자 이상 입력해 주세요.");
+    let target;
+    try {
+      target = await getAuth().getUser(targetId);
+    } catch (error) {
+      if ((error as { code?: string }).code === "auth/user-not-found")
+        throw new HttpsError("not-found", "이미 제거되었거나 존재하지 않는 회원입니다.");
+      throw error;
+    }
+    if (target.customClaims?.admin === true)
+      throw new HttpsError("failed-precondition", "관리자 계정은 회원 관리 화면에서 제거할 수 없습니다.");
+    if (!target.email || target.email.toLowerCase() !== String(confirmationEmail ?? "").trim().toLowerCase())
+      throw new HttpsError("failed-precondition", "확인 이메일이 대상 회원과 일치하지 않습니다.");
+
+    await getAuth().updateUser(targetId, { disabled: true });
+    await getAuth().revokeRefreshTokens(targetId);
+    const [hosted, memberships, tokens, locations, archives, favorites] = await Promise.all([
+      db.collection("rides").where("hostId", "==", targetId).get(),
+      db.collection("rideMembers").where("userId", "==", targetId).get(),
+      db.collection("deviceTokens").where("userId", "==", targetId).get(),
+      db.collection("liveLocations").where("userId", "==", targetId).get(),
+      db.collection("rideArchives").where("userId", "==", targetId).get(),
+      db.collection("rideFavorites").where("userId", "==", targetId).get(),
+    ]);
+    const hostedIds = new Set(hosted.docs.map(row => row.id));
+    for (const rows of Array.from({ length: Math.ceil(memberships.size / 20) }, (_, index) => memberships.docs.slice(index * 20, index * 20 + 20))) {
+      await Promise.all(rows.map(member => db.runTransaction(async tx => {
+        const rideId = String(member.data().rideId ?? "");
+        const rideRef = db.collection("rides").doc(rideId);
+        const ride = await tx.get(rideRef);
+        tx.delete(member.ref);
+        if (ride.exists && !hostedIds.has(rideId))
+          tx.update(rideRef, { memberCount: Math.max(0, Number(ride.data()?.memberCount ?? 1) - 1), updatedAt: FieldValue.serverTimestamp() });
+      })));
+    }
+    const batchRows = [...tokens.docs, ...locations.docs, ...archives.docs, ...favorites.docs];
+    for (let index = 0; index < batchRows.length; index += 400) {
+      const batch = db.batch();
+      for (const row of batchRows.slice(index, index + 400)) batch.delete(row.ref);
+      await batch.commit();
+    }
+    for (let index = 0; index < hosted.docs.length; index += 200) {
+      const batch = db.batch();
+      for (const ride of hosted.docs.slice(index, index + 200)) {
+        if (ride.data().lifecycleDeletedAt) continue;
+        batch.update(ride.ref, { status: "삭제됨", previousStatus: ride.data().status, visibility: "private", lifecycleDeletedAt: FieldValue.serverTimestamp(), deletionReason: "host_account_deleted", updatedAt: FieldValue.serverTimestamp() });
+        if (ride.data().purpose === "group") batch.set(ride.ref.collection("cancellationEvents").doc("account-deleted"), { title: String(ride.data().title ?? "라이딩"), hostId: targetId, createdAt: FieldValue.serverTimestamp() });
+      }
+      await batch.commit();
+    }
+    await getAuth().deleteUser(targetId);
+    await db.collection("users").doc(targetId).delete();
+    await audit(adminId, action, "user", targetId, {
+      reason: String(reason).trim().slice(0, 500),
+      affectedHostedRides: hosted.size,
+      removedMemberships: memberships.size,
+    });
+  } else if (action === "suspend_user" || action === "activate_user") {
     const disabled = action === "suspend_user";
     await getAuth().updateUser(targetId, { disabled });
     await db

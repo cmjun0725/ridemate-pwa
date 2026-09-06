@@ -5,11 +5,14 @@ import {
   Bike,
   ClipboardList,
   RefreshCw,
+  Search,
   ShieldCheck,
+  Trash2,
   Users,
 } from "lucide-react";
 import {
   adminModerate,
+  adminFindUser,
   getAdminDashboard,
   type AdminDashboardData,
 } from "./services";
@@ -30,8 +33,13 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<View>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [pending, setPending] = useState<{ action: string; targetId: string; label: string } | null>(null);
+  const [pending, setPending] = useState<{ action: string; targetId: string; label: string; targetEmail?: string } | null>(null);
   const [reason, setReason] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [executing, setExecuting] = useState(false);
+  const [searchEmail, setSearchEmail] = useState("");
+  const [foundUser, setFoundUser] = useState<(Record<string, unknown> & { id: string }) | null>(null);
+  const [searching, setSearching] = useState(false);
   const load = async () => {
     setLoading(true);
     setError("");
@@ -50,15 +58,22 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void load();
   }, []);
-  const act = (action: string, targetId: string, label: string) => {
+  const act = (action: string, targetId: string, label: string, targetEmail?: string) => {
     setReason("");
-    setPending({ action, targetId, label });
+    setConfirmation("");
+    setPending({ action, targetId, label, targetEmail });
   };
   const execute = async () => {
     if (!pending) return;
+    if (pending.action === "delete_user" && confirmation.trim().toLowerCase() !== pending.targetEmail?.toLowerCase()) {
+      setError("삭제 확인 이메일이 대상 회원과 일치하지 않습니다.");
+      return;
+    }
+    setExecuting(true);
     try {
-      await adminModerate({ action: pending.action, targetId: pending.targetId, reason });
+      await adminModerate({ action: pending.action, targetId: pending.targetId, reason, confirmationEmail: confirmation });
       setPending(null);
+      setFoundUser(null);
       await load();
     } catch (reasonValue) {
       setError(
@@ -66,7 +81,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
           ? reasonValue.message
           : "관리 작업에 실패했습니다.",
       );
-    }
+    } finally { setExecuting(false); }
   };
   return (
     <section className="admin-shell">
@@ -159,8 +174,17 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
       ) : view === "users" ? (
         <section className="admin-section">
           <h2>회원 관리</h2>
+          <form className="admin-user-search" onSubmit={async event => {
+            event.preventDefault(); setError(""); setSearching(true); setFoundUser(null);
+            try { setFoundUser(await adminFindUser(searchEmail)); }
+            catch (reasonValue) { setError(reasonValue instanceof Error ? reasonValue.message : "회원을 찾지 못했습니다."); }
+            finally { setSearching(false); }
+          }}>
+            <label htmlFor="admin-user-email">회원 이메일로 정확히 검색</label>
+            <div><input id="admin-user-email" type="email" required value={searchEmail} onChange={event => setSearchEmail(event.target.value)} placeholder="member@example.com" /><button type="submit" disabled={searching}><Search size={16} />{searching ? "검색 중…" : "검색"}</button></div>
+          </form>
           <div className="admin-list">
-            {data.users.map((user) => (
+            {(foundUser ? [foundUser, ...data.users.filter(user => user.id !== foundUser.id)] : data.users).map((user) => (
               <article key={user.id}>
                 <div>
                   <b>{text(user.email, "이메일 미등록")}</b>
@@ -186,6 +210,11 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
                   >
                     {user.status === "suspended" ? "활성화" : "정지"}
                   </button>
+                  {typeof user.email === "string" && user.email && user.isAdmin !== true && (
+                    <button className="danger" onClick={() => act("delete_user", user.id, "회원 강제 탈퇴", user.email as string)}>
+                      <Trash2 size={15} /> 제거
+                    </button>
+                  )}
                 </div>
               </article>
             ))}
@@ -306,7 +335,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
             }}
           >
             <h2 id="admin-action-title">{pending.label}</h2>
-            <p>이 작업은 즉시 반영되고 관리자 감사 로그에 기록됩니다.</p>
+            <p>{pending.action === "delete_user" ? "로그인 계정, 참여 상태, 푸시 토큰을 제거하고 이 회원이 만든 라이딩을 취소합니다. 신고·노쇼·감사 기록은 보존되며 되돌릴 수 없습니다." : "이 작업은 즉시 반영되고 관리자 감사 로그에 기록됩니다."}</p>
             <label>
               처리 사유
               <textarea
@@ -318,16 +347,21 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
                 placeholder="처리 근거를 입력하세요"
               />
             </label>
+            {pending.action === "delete_user" && <label>
+              확인을 위해 회원 이메일 입력
+              <input required type="email" autoComplete="off" value={confirmation} onChange={event => setConfirmation(event.target.value)} placeholder={pending.targetEmail} />
+            </label>}
             <div className="inline-actions">
               <button
                 type="button"
                 className="secondary"
                 onClick={() => setPending(null)}
+                disabled={executing}
               >
                 취소
               </button>
-              <button className="danger" type="submit">
-                확인하고 실행
+              <button className="danger" type="submit" disabled={executing}>
+                {executing ? "처리 중…" : "확인하고 실행"}
               </button>
             </div>
           </form>

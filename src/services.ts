@@ -107,10 +107,13 @@ export const bootstrapAdmin = () =>
   callable<Record<string, never>, { ok: boolean }>("bootstrapAdmin", {});
 export const getAdminDashboard = () =>
   callable<Record<string, never>, AdminDashboardData>("getAdminDashboard", {});
+export const adminFindUser = (email: string) =>
+  callable<{ email: string }, { user: Record<string, unknown> & { id: string } }>("adminFindUser", { email }).then(result => result.user);
 export const adminModerate = (input: {
   action: string;
   targetId: string;
   reason?: string;
+  confirmationEmail?: string;
 }) => callable<typeof input, { ok: boolean }>("adminModerate", input);
 export const listPublicRides = () =>
   callable<Record<string, never>, { rides: Ride[] }>(

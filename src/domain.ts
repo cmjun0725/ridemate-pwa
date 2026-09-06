@@ -25,13 +25,16 @@ export function filterPublicRides(
   query: string,
   maxDistance: number,
   maxPace: number,
-  options: { onlyAvailable?: boolean; withinDays?: number; upcomingOnly?: boolean; now?: Date } = {},
+  options: { onlyAvailable?: boolean; withinDays?: number; upcomingOnly?: boolean; recentHours?: number; now?: Date } = {},
 ) {
   const normalized = query.trim().toLowerCase();
   const now = options.now ?? new Date();
   const deadline = options.withinDays
     ? now.getTime() + options.withinDays * 86400000
     : Number.POSITIVE_INFINITY;
+  const earliest = options.recentHours
+    ? now.getTime() - options.recentHours * 3600000
+    : Number.NEGATIVE_INFINITY;
   return rides.filter(
     (ride) => {
       const startsAt = new Date(ride.startsAt).getTime();
@@ -43,6 +46,7 @@ export function filterPublicRides(
       ride.paceKmh <= maxPace &&
       (!options.onlyAvailable || (ride.status === "모집중" && memberCount < ride.capacity)) &&
       (!options.upcomingOnly || startsAt >= now.getTime()) &&
+      (!options.recentHours || startsAt >= earliest) &&
       (!options.withinDays || (startsAt >= now.getTime() && startsAt <= deadline));
     },
   );

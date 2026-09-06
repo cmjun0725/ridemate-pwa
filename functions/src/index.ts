@@ -874,9 +874,10 @@ const serialize = (row: FirebaseFirestore.DocumentSnapshot) => {
 
 export const listPublicRides = onCall({ region }, async (request) => {
   const now = new Date();
+  const visibleSince = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const [timestampRows, legacyStringRows] = await Promise.all([
-    db.collection("rides").where("startsAt", ">", now).orderBy("startsAt", "asc").limit(100).get(),
-    db.collection("rides").where("startsAt", ">", now.toISOString()).orderBy("startsAt", "asc").limit(100).get(),
+    db.collection("rides").where("startsAt", ">", visibleSince).orderBy("startsAt", "asc").limit(100).get(),
+    db.collection("rides").where("startsAt", ">", visibleSince.toISOString()).orderBy("startsAt", "asc").limit(100).get(),
   ]);
   const rows = [...new Map([...timestampRows.docs, ...legacyStringRows.docs].map(row => [row.id, row])).values()];
   const blockedIds = new Set<string>();
@@ -887,7 +888,7 @@ export const listPublicRides = onCall({ region }, async (request) => {
       const publicRoom = value.visibility === "public" || (value.purpose === "group" && value.visibility !== "private");
       const listableStatus = ["계획", "모집중", "마감"].includes(String(value.status ?? ""));
       const startsAt = value.startsAt?.toDate?.() ?? new Date(value.startsAt);
-      return publicRoom && listableStatus && Number.isFinite(startsAt.getTime()) && startsAt.getTime() > now.getTime() && !blockedIds.has(String(value.hostId)) && !hasBlockedRideContent(String(value.title ?? ""), String(value.description ?? ""));
+      return publicRoom && listableStatus && Number.isFinite(startsAt.getTime()) && startsAt.getTime() > visibleSince.getTime() && !blockedIds.has(String(value.hostId)) && !hasBlockedRideContent(String(value.title ?? ""), String(value.description ?? ""));
     })
     .sort(
       (a, b) =>

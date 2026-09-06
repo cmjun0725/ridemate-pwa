@@ -3023,7 +3023,7 @@ export default function App() {
   const filtered = useMemo(
     () => filterPublicRides(rides, debouncedQuery, maxDistance, maxPace, {
       onlyAvailable,
-      upcomingOnly: true,
+      recentHours: 24,
       withinDays: withinWeek ? 7 : undefined,
     }),
     [rides, debouncedQuery, maxDistance, maxPace, onlyAvailable, withinWeek],

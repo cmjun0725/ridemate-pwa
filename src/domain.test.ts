@@ -64,6 +64,16 @@ describe("라이딩 도메인 정책", () => {
       now: new Date("2026-09-02T00:00:00.000Z"),
     })).toEqual([open]);
   });
+  it("출발 시각이 지났어도 24시간 유예 중인 모집방은 홈에 유지한다", () => {
+    const recent = ride(40, 24, "방금 출발한 방");
+    recent.startsAt = "2026-09-06T04:00:00.000Z";
+    const expired = ride(40, 24, "하루 지난 방");
+    expired.startsAt = "2026-09-05T03:59:59.000Z";
+    expect(filterPublicRides([recent, expired], "", 200, 60, {
+      recentHours: 24,
+      now: new Date("2026-09-06T05:00:00.000Z"),
+    })).toEqual([recent]);
+  });
   it("노쇼는 최소 3표이면서 유효표 과반일 때만 확정한다", () => {
     expect(isNoShowConfirmed(2, 2)).toBe(false);
     expect(isNoShowConfirmed(4, 2)).toBe(false);

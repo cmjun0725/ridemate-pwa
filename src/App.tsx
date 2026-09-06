@@ -2358,28 +2358,31 @@ function ProfileTools() {
         </div>
         <h2 id="notification-settings" tabIndex={-1}>알림 설정</h2>
         <label className="switch-row">
+          <span><b>라이딩 일정·참여</b><small>출발 시간과 방 참여 상태를 알려드려요.</small></span>
           <input
             name="notifyRide"
             type="checkbox"
             defaultChecked={settings.notifications.ride}
+            aria-label="라이딩 일정과 참여 알림"
           />
-          라이딩 일정·참여 알림
         </label>
         <label className="switch-row">
+          <span><b>참여자 채팅</b><small>참여 중인 방의 새 메시지를 알려드려요.</small></span>
           <input
             name="notifyChat"
             type="checkbox"
             defaultChecked={settings.notifications.chat}
+            aria-label="참여자 채팅 알림"
           />
-          참여자 채팅 알림
         </label>
         <label className="switch-row">
+          <span><b>안전·노쇼 투표</b><small>안전 안내와 라이딩 종료 후 투표를 알려드려요.</small></span>
           <input
             name="notifySafety"
             type="checkbox"
             defaultChecked={settings.notifications.safety}
+            aria-label="안전과 노쇼 투표 알림"
           />
-          안전·노쇼 투표 알림
         </label>
         <button
           type="button"
@@ -3173,8 +3176,10 @@ export default function App() {
         </button>
         <div className="header-actions">
           <button
+            type="button"
             className="bell"
             aria-label="알림 설정"
+            title="알림 설정"
             onClick={() => {
               setSelected(null);
               setTab("profile");
@@ -3185,8 +3190,10 @@ export default function App() {
             <Bell size={20} />
           </button>
           <button
+            type="button"
             className={`profile-shortcut ${tab === "profile" ? "current" : ""}`}
             aria-label="프로필"
+            title="프로필"
             aria-current={tab === "profile" ? "page" : undefined}
             onClick={() => {
               setSelected(null);

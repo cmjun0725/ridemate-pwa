@@ -736,8 +736,8 @@ legend {
     color: #ffffff;
     border-color: #3f8b70;
   }
-  .bell { background: #41261f; color: #ff9f87; }
-  .profile-shortcut { background: #193128; color: #c4d4ce; }
+  .header-actions .bell { background: transparent; color: #ff9f87; }
+  .header-actions .profile-shortcut { background: transparent; color: #c4d4ce; }
   .profile-shortcut.current { background: #1e5b46; color: #ffffff; }
   .verified { background: #174d3a; color: #a5e8ce; }
   .verified.recommended { background: #4d3b13; color: #ffe099; border-color: #81662a; }

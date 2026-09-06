@@ -662,7 +662,6 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
         <path className="elevation-area" d={area} />
         <path className="elevation-line" d={line} />
       </svg>
-      <small>지형 데이터 기반 추정치 · 교량·터널·실제 노면 높이와 다를 수 있어요. 세로축은 최소 30m 범위로 표시합니다.</small>
     </article>
   );
 }
@@ -1554,34 +1553,6 @@ function CommonRideFields({ solo }: { solo: boolean }) {
   );
 }
 
-function RecommendationBasis({ candidate }: { candidate: RouteCandidate }) {
-  const criteria = candidate.criteria;
-  return (
-    <article className="recommendation-basis" aria-label="추천 선정 기준">
-      <div><b>추천 기준</b><span>{Number.isFinite(candidate.score) ? `조건 오차 ${candidate.score}점 · 낮을수록 적합` : "이 코스의 평가 점수가 없습니다"}</span></div>
-      <p>목표 대비 거리 오차 70%와 km당 상승고도 오차 30%를 합산합니다. 계산된 후보 중 총 오차가 가장 낮은 코스가 1순위입니다.</p>
-      {criteria && <p>희망 조건: {criteria.targetDistanceKm}km · 누적 상승 약 {Math.round(criteria.targetDistanceKm * criteria.targetClimbRate)}m. m/km는 전체 누적 상승고도를 거리로 나눈 값으로, 순간 경사도와 다릅니다.</p>}
-      {criteria && [criteria.distanceErrorPercent, criteria.uphillErrorPercent, criteria.weightedDistanceError, criteria.weightedUphillError].every(Number.isFinite) && <details className="score-details">
-      <summary>오차 점수 계산 보기</summary>
-      <p>각 오차(%) = |실제 값 − 목표 값| ÷ 목표 값 × 100. 표시값은 반올림되어 합계에 작은 차이가 있을 수 있습니다.</p>
-      <div className="score-formula" aria-label="추천 점수 계산 내역">
-        <span>거리 오차 {criteria?.distanceErrorPercent ?? 0}% × 0.7 = <b>{criteria?.weightedDistanceError ?? 0}</b></span>
-        <i aria-hidden="true">+</i>
-        <span>업힐 오차 {criteria?.uphillErrorPercent ?? 0}% × 0.3 = <b>{criteria?.weightedUphillError ?? 0}</b></span>
-        <i aria-hidden="true">=</i>
-        <strong>{candidate.score ?? 0}점</strong>
-      </div>
-      </details>}
-      <div className="criteria-bars">
-        <span><i style={{ width: `${criteria?.distanceMatchPercent ?? 0}%` }} /><b>거리 적합도 {criteria?.distanceMatchPercent ?? 0}%</b><small>목표 {criteria?.targetDistanceKm ?? "-"}km · 차이 {candidate.distanceDifferenceKm}km</small></span>
-        <span><i style={{ width: `${criteria?.uphillMatchPercent ?? 0}%` }} /><b>업힐 적합도 {criteria?.uphillMatchPercent ?? 0}%</b><small>목표 {criteria?.targetClimbRate ?? "-"}m/km · 실제 {candidate.climbRate}m/km</small></span>
-      </div>
-      <small>※ 교통 통제·노면 공사·현장 안전 상태는 출발 전 별도로 확인해야 합니다.</small>
-      <small>※ 빨간 업힐: 보정 고도 기준 길이 180m 이상·순상승 8m 이상·평균 경사도 2.2% 이상인 구간입니다.</small>
-    </article>
-  );
-}
-
 function CandidateResults({
   candidates,
   onReset,
@@ -1703,11 +1674,9 @@ function CandidateResults({
         climbSegments={candidates[selected]?.climbSegments ?? []}
       />
       <ElevationChart points={candidates[selected]?.elevationProfile ?? []} />
-      <RecommendationBasis candidate={candidates[selected]} />
       {(candidates[selected]?.climbSegments.length ?? 0) > 0 && (
         <article className="climb-list candidate-climbs">
           <b>빨간색 업힐 분석</b>
-          <p>코스 후보를 바꾸며 포함된 업힐을 비교하세요.</p>
           {candidates[selected].climbSegments.slice(0, 5).map((segment, index) => (
             <span key={segment.id}>{index + 1}번째 · {segment.startKm}–{segment.endKm}km · +{segment.gainM}m · {segment.avgGradient}%</span>
           ))}
@@ -1727,12 +1696,9 @@ function CandidateResults({
             />
             <div>
               <b>{candidate.title}</b>
-              <p>{candidate.summary}</p>
               <small>
-                {candidate.distanceKm}km · 상승 {candidate.elevationM}m · km당{" "}
-                {candidate.climbRate}m
+                {candidate.distanceKm}km · 상승 {candidate.elevationM}m
               </small>
-              <small className="candidate-score">거리 {candidate.criteria?.distanceMatchPercent ?? 0}% · 업힐 {candidate.criteria?.uphillMatchPercent ?? 0}% 적합</small>
             </div>
             <span
               className={`verified ${candidate.recommended ? "recommended" : ""}`}
@@ -1787,14 +1753,13 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
         <div className="explorer-grid">
           <div>
             <ElevationChart points={candidate.elevationProfile} />
-            <RecommendationBasis candidate={candidate} />
             <article className="poi-summary"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poiLoading} compact /></article>
           </div>
           <div className="candidate-list">
             {candidates.map((row, index) => (
               <button key={row.id} className={`candidate-card ${selected === index ? "selected" : ""}`} onClick={() => setSelected(index)}>
                 <span className="route-swatch" style={{ background: routeColors[index] }} />
-                <div><b>{row.title}</b><p>{row.distanceKm}km · 상승 {row.elevationM}m</p><small>거리 {row.criteria?.distanceMatchPercent ?? 0}% · 업힐 {row.criteria?.uphillMatchPercent ?? 0}% 적합</small></div>
+                <div><b>{row.title}</b><p>{row.distanceKm}km · 상승 {row.elevationM}m</p></div>
                 <span className={`verified ${row.recommended ? "recommended" : ""}`}>{row.recommended ? "1순위 추천" : "검증됨"}</span>
               </button>
             ))}
@@ -1807,7 +1772,6 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
   return (
     <section className="page course-explorer">
       <h1>주변 자전거 코스 찾기</h1>
-      <p className="sub">로그인이나 라이딩 생성 없이 출발지 주변의 거리·고도 검증 코스를 확인하세요.</p>
       <form onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -1827,10 +1791,9 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
         <PlacePicker name="exploreStart" label="어디에서 출발하나요?" placeholder="역·공원·정확한 장소명 검색" />
         <div className="explore-options">
           <label>희망 거리<input name="distanceKm" type="number" min="5" max="200" defaultValue="30" required /><small>km</small></label>
-          <label>업힐 수준<select name="uphill" defaultValue="medium"><option value="low">평지 위주 · 약 4m/km</option><option value="medium">균형 · 약 10m/km</option><option value="high">도전 · 약 19m/km</option></select></label>
+          <label>업힐 수준<select name="uphill" defaultValue="medium"><option value="low">평지 위주</option><option value="medium">균형</option><option value="high">도전</option></select></label>
         </div>
         <fieldset><legend>코스 형태</legend><div className="segmented"><button type="button" className={tripType === "round" ? "active" : ""} onClick={() => setTripType("round")}>왕복·순환</button><button type="button" className={tripType === "oneway" ? "active" : ""} onClick={() => setTripType("oneway")}>편도</button></div></fieldset>
-        <article className="recommendation-preview"><b>어떻게 추천하나요?</b><p>거리 오차 70% + km당 상승고도 오차 30%를 합산합니다. 계산된 3개 중 오차 점수가 가장 낮은 코스를 1순위로 표시합니다.</p></article>
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="primary wide" disabled={loading}>{loading ? "자전거 경로와 고도 분석 중…" : "주변 코스 3개 탐색"}</button>
       </form>
@@ -2134,27 +2097,21 @@ function CreateRide({
           </div>
           <fieldset className="uphill-picker">
             <legend>희망 업힐 정도</legend>
-            <p>전체 코스의 ‘누적 상승고도 ÷ 거리’를 기준으로 비교합니다.</p>
             <div>
               <label>
                 <input type="radio" name="uphill" value="low" />
-                <span><b>평지 위주</b><small>목표 4m/km · 0~6m/km 권장</small></span>
+                <span><b>평지 위주</b></span>
               </label>
               <label>
                 <input type="radio" name="uphill" value="medium" defaultChecked />
-                <span><b>균형</b><small>목표 10m/km · 7~14m/km 권장</small></span>
+                <span><b>균형</b></span>
               </label>
               <label>
                 <input type="radio" name="uphill" value="high" />
-                <span><b>도전</b><small>목표 19m/km · 15m/km 이상</small></span>
+                <span><b>도전</b></span>
               </label>
             </div>
           </fieldset>
-          <details className="uphill-rule">
-            <summary>업힐 표시 기준 알아보기</summary>
-            <p>약 25m 간격으로 고도를 보정한 뒤, 길이 180m 이상·순상승 8m 이상·평균 경사도 2.2% 이상인 구간을 표시합니다. 중간의 완만 구간은 최대 160m까지 연결하며, 업힐 끝의 평지·내리막은 제외합니다.</p>
-            <p>자전거 주행 가능 경로에는 일반도로가 포함될 수 있습니다. 출발 전 통행 가능 여부를 확인하세요.</p>
-          </details>
           <fieldset>
             <legend>라이딩 유형</legend>
             <div className="segmented">
@@ -2202,7 +2159,7 @@ function CreateRide({
           <fieldset><legend>라이딩 유형</legend><div className="segmented">
             <button type="button" className={manualTrip === "oneway" ? "active" : ""} aria-pressed={manualTrip === "oneway"} onClick={() => setManualTrip("oneway")}>편도</button>
             <button type="button" className={manualTrip === "round" ? "active" : ""} aria-pressed={manualTrip === "round"} onClick={() => setManualTrip("round")}>왕복</button>
-          </div><p className="field-help">{manualTrip === "round" ? "출발지 → 반환점 → 출발지 전체 경로를 계산합니다. 돌아오는 길은 도로 방향에 따라 달라질 수 있어요." : "출발지에서 도착지까지 경로를 계산합니다."}</p></fieldset>
+          </div></fieldset>
           <PlacePicker name="manualEnd" label={manualTrip === "round" ? "반환 지점" : "도착 지점"} placeholder={manualTrip === "round" ? "돌아올 지점 검색 후 선택" : "도착 장소 검색 후 선택"} />
           <div className="two">
             <label>
@@ -2308,7 +2265,6 @@ function ProfileTools() {
   const [loadError, setLoadError] = useState("");
   const [retry, setRetry] = useState(0);
   const [saved, setSaved] = useState("");
-  const [legal, setLegal] = useState<keyof typeof legalCopy | null>(null);
   useEffect(() => {
     let active = true;
     setLoadError("");
@@ -2446,12 +2402,6 @@ function ProfileTools() {
         )}
         <button className="primary wide">안전 프로필·알림 저장</button>
       </form>
-      <div className="legal-links">
-        <button onClick={() => setLegal("terms")}>이용약관</button>
-        <button onClick={() => setLegal("privacy")}>개인정보처리방침</button>
-        <button onClick={() => setLegal("location")}>위치서비스 안내</button>
-      </div>
-      {legal && <LegalSheet kind={legal} onClose={() => setLegal(null)} />}
     </>
   );
 }
@@ -2685,7 +2635,6 @@ function LoginPanel() {
           로그인을 이용해 주세요.
         </p>
       </article>
-      <LegalLinks />
     </section>
   );
 }
@@ -3149,7 +3098,6 @@ export default function App() {
           <br />
           라이딩을 찾아보세요
         </h1>
-        <p>거리와 평속을 비교하고, 코스와 참여자를 확인한 뒤 안전하게 출발하세요.</p>
       </div>
       <section className="home-search-panel" aria-labelledby="ride-search-title">
       <h2 id="ride-search-title">라이딩 찾기</h2>
@@ -3319,6 +3267,9 @@ export default function App() {
       <div id="main-content" tabIndex={-1}>
         {content}
       </div>
+      <footer className="app-footer">
+        <LegalLinks />
+      </footer>
       {!selected && (
         <nav role="navigation" aria-label="메인 메뉴">
           {(

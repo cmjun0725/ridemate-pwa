@@ -210,6 +210,9 @@ header { background:var(--rm-bg); }
 .create-page .purpose-tabs button b { font-size:16px; }
 .create-page .mode-cards button b { font-size:15px; }
 .create-page form>label,.create-page form>fieldset>legend,.create-page .place-field>label,.create-page .date-time-title { font-size:15px; font-weight:750; }
+.app-footer { width:100%; margin-top:44px; padding:24px 20px calc(18px + env(safe-area-inset-bottom)); border-top:1px solid var(--rm-line); }
+.app-footer .legal-links { display:flex; justify-content:center; flex-wrap:wrap; gap:8px 18px; }
+.app-footer .legal-links button { min-height:36px; color:var(--rm-muted); font-size:11px; }
 
 @media(min-width:900px) {
   .home-page { grid-template-columns:minmax(0,1.2fr) minmax(360px,.8fr); align-items:stretch; }

@@ -472,9 +472,10 @@ export const joinRide = onCall({ region }, async (request) => {
     const data = ride.data()!;
     const [blockedByUser, blockedByHost] = await Promise.all([tx.get(db.collection("userBlocks").doc(`${request.auth!.uid}_${data.hostId}`)), tx.get(db.collection("userBlocks").doc(`${data.hostId}_${request.auth!.uid}`))]);
     if (blockedByUser.exists || blockedByHost.exists) throw new HttpsError("permission-denied", "차단 관계가 있는 사용자와는 함께 라이딩할 수 없습니다.");
-    if (data.status !== "모집중" || data.memberCount >= data.capacity)
+    const joinableStatus = data.status === "모집중" || (data.status === "계획" && data.purpose === "group");
+    if (!joinableStatus || data.memberCount >= data.capacity)
       throw new HttpsError("failed-precondition", "모집이 마감되었습니다.");
-    const startsAt = data.startsAt?.toDate?.() as Date | undefined;
+    const startsAt = (data.startsAt?.toDate?.() ?? (data.startsAt ? new Date(data.startsAt) : undefined)) as Date | undefined;
     if (!startsAt || startsAt.getTime() <= Date.now())
       throw new HttpsError("failed-precondition", "이미 출발 시간이 지난 라이딩입니다.");
     tx.set(memberRef, {
@@ -861,7 +862,7 @@ const serialize = (row: FirebaseFirestore.DocumentSnapshot) => {
     ...value,
     startsAt:
       (value as Record<string, any>).startsAt?.toDate?.()?.toISOString?.() ??
-      null,
+      (typeof (value as Record<string, any>).startsAt === "string" ? (value as Record<string, any>).startsAt : null),
     createdAt:
       (value as Record<string, any>).createdAt?.toDate?.()?.toISOString?.() ??
       null,
@@ -872,17 +873,22 @@ const serialize = (row: FirebaseFirestore.DocumentSnapshot) => {
 };
 
 export const listPublicRides = onCall({ region }, async (request) => {
-  const rows = await db
-    .collection("rides")
-    .where("status", "in", ["모집중", "마감"])
-    .where("startsAt", ">", new Date())
-    .orderBy("startsAt", "asc")
-    .limit(60)
-    .get();
+  const now = new Date();
+  const [timestampRows, legacyStringRows] = await Promise.all([
+    db.collection("rides").where("startsAt", ">", now).orderBy("startsAt", "asc").limit(100).get(),
+    db.collection("rides").where("startsAt", ">", now.toISOString()).orderBy("startsAt", "asc").limit(100).get(),
+  ]);
+  const rows = [...new Map([...timestampRows.docs, ...legacyStringRows.docs].map(row => [row.id, row])).values()];
   const blockedIds = new Set<string>();
   if (request.auth?.uid) { const [mine, byOthers] = await Promise.all([db.collection("userBlocks").where("ownerId", "==", request.auth.uid).get(), db.collection("userBlocks").where("targetUserId", "==", request.auth.uid).get()]); mine.docs.forEach(row=>blockedIds.add(String(row.data().targetUserId))); byOthers.docs.forEach(row=>blockedIds.add(String(row.data().ownerId))); }
-  const visible = rows.docs
-    .filter((row) => row.data().visibility === "public" && !blockedIds.has(String(row.data().hostId)) && !hasBlockedRideContent(String(row.data().title ?? ""), String(row.data().description ?? "")))
+  const visible = rows
+    .filter((row) => {
+      const value = row.data();
+      const publicRoom = value.visibility === "public" || (value.purpose === "group" && value.visibility !== "private");
+      const listableStatus = ["계획", "모집중", "마감"].includes(String(value.status ?? ""));
+      const startsAt = value.startsAt?.toDate?.() ?? new Date(value.startsAt);
+      return publicRoom && listableStatus && Number.isFinite(startsAt.getTime()) && startsAt.getTime() > now.getTime() && !blockedIds.has(String(value.hostId)) && !hasBlockedRideContent(String(value.title ?? ""), String(value.description ?? ""));
+    })
     .sort(
       (a, b) =>
         (a.data().startsAt?.toMillis?.() ?? 0) -
@@ -902,6 +908,7 @@ export const listPublicRides = onCall({ region }, async (request) => {
   return {
     rides: visible.map((row, index) => ({
       ...serialize(row),
+      status: row.data().status === "계획" && row.data().purpose === "group" ? "모집중" : row.data().status,
       course: serialize(courseRows[index]),
       host: {
         id: userRows[index].id,
@@ -917,7 +924,9 @@ export const getRideDetails = onCall({ region }, async (request) => {
   if (!rideId)
     throw new HttpsError("invalid-argument", "라이딩 정보가 필요합니다.");
   const ride = await db.collection("rides").doc(rideId).get();
-  if (!ride.exists || ride.data()?.visibility !== "public" || ride.data()?.status === "숨김" || hasBlockedRideContent(String(ride.data()?.title ?? ""), String(ride.data()?.description ?? "")))
+  const rideData = ride.data();
+  const publicRoom = rideData?.visibility === "public" || (rideData?.purpose === "group" && rideData?.visibility !== "private");
+  if (!ride.exists || !publicRoom || rideData?.status === "숨김" || hasBlockedRideContent(String(rideData?.title ?? ""), String(rideData?.description ?? "")))
     throw new HttpsError("not-found", "라이딩을 찾을 수 없습니다.");
   const [course, members] = await Promise.all([
     db.collection("courses").doc(String(ride.data()!.courseId)).get(),
@@ -931,6 +940,7 @@ export const getRideDetails = onCall({ region }, async (request) => {
   return {
     ride: {
       ...serialize(ride),
+      status: rideData?.status === "계획" && rideData?.purpose === "group" ? "모집중" : rideData?.status,
       course: serialize(course),
       host: {
         id: String(ride.data()!.hostId),

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cancelRide } from "./services";
+import { toast } from "./toast";
 
 export function CancelRideButton({ rideId, onCancelled }: { rideId: string; onCancelled: () => void }) {
   const [confirm, setConfirm] = useState(false);
@@ -13,7 +14,7 @@ export function CancelRideButton({ rideId, onCancelled }: { rideId: string; onCa
     <button className="secondary" disabled={busy} onClick={() => setConfirm(false)}>돌아가기</button>{" "}
     <button className="danger" disabled={busy} onClick={async () => {
       setBusy(true); setError("");
-      try { await cancelRide(rideId); onCancelled(); }
+      try { await cancelRide(rideId); toast("라이딩을 취소·정리했습니다.", "info"); onCancelled(); }
       catch (e) { setError(e instanceof Error ? e.message : "취소하지 못했습니다. 다시 시도해 주세요."); }
       finally { setBusy(false); }
     }}>{busy ? "정리 중…" : "취소·정리 확인"}</button>

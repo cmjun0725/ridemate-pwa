@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
-export function SelectMenu({ label, value, onChange, options }: {
+export function SelectMenu({ label, value, onChange, options, compact = false }: {
   label: string; value: string; onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -18,7 +19,7 @@ export function SelectMenu({ label, value, onChange, options }: {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
-  return <div className="select-menu" ref={root} onBlur={event => {
+  return <div className={`select-menu ${compact ? "compact" : ""}`} ref={root} onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
     <button type="button" ref={trigger} className="select-trigger" aria-label={`${label}: ${options.find(o => o.value === value)?.label ?? "선택"}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined}

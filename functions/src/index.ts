@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { expiryTime, groupLimitReached } from "./lifecycle.js";
 import { analyzeElevation } from "./elevation.js";
+import { assessSeparation, distanceMeters } from "./separation.js";
 
 initializeApp();
 const db = getFirestore();
@@ -470,13 +471,15 @@ export const joinRide = onCall({ region }, async (request) => {
     if (member.exists)
       throw new HttpsError("already-exists", "이미 참여했습니다.");
     const data = ride.data()!;
+    if (data.purpose === "solo" || data.visibility === "private" || !(data.visibility === "public" || data.purpose === "group"))
+      throw new HttpsError("permission-denied", "공개된 함께 라이딩에만 참여할 수 있습니다.");
     const [blockedByUser, blockedByHost] = await Promise.all([tx.get(db.collection("userBlocks").doc(`${request.auth!.uid}_${data.hostId}`)), tx.get(db.collection("userBlocks").doc(`${data.hostId}_${request.auth!.uid}`))]);
     if (blockedByUser.exists || blockedByHost.exists) throw new HttpsError("permission-denied", "차단 관계가 있는 사용자와는 함께 라이딩할 수 없습니다.");
     const joinableStatus = data.status === "모집중" || (data.status === "계획" && data.purpose === "group");
     if (!joinableStatus || data.memberCount >= data.capacity)
       throw new HttpsError("failed-precondition", "모집이 마감되었습니다.");
     const startsAt = (data.startsAt?.toDate?.() ?? (data.startsAt ? new Date(data.startsAt) : undefined)) as Date | undefined;
-    if (!startsAt || startsAt.getTime() <= Date.now())
+    if (!startsAt || !Number.isFinite(startsAt.getTime()) || startsAt.getTime() <= Date.now())
       throw new HttpsError("failed-precondition", "이미 출발 시간이 지난 라이딩입니다.");
     tx.set(memberRef, {
       rideId,
@@ -892,8 +895,8 @@ export const listPublicRides = onCall({ region }, async (request) => {
     })
     .sort(
       (a, b) =>
-        (a.data().startsAt?.toMillis?.() ?? 0) -
-        (b.data().startsAt?.toMillis?.() ?? 0),
+        (a.data().startsAt?.toMillis?.() ?? new Date(a.data().startsAt).getTime()) -
+        (b.data().startsAt?.toMillis?.() ?? new Date(b.data().startsAt).getTime()),
     )
     .slice(0, 40);
   const courseRows = await Promise.all(
@@ -1416,6 +1419,7 @@ export const updateLiveLocation = onCall({ region }, async (request) => {
     rideId?: string;
     lat?: number;
     lng?: number;
+    accuracyM?: number;
     active?: boolean;
   };
   const [membership, ride] = rideId
@@ -1432,20 +1436,72 @@ export const updateLiveLocation = onCall({ region }, async (request) => {
   const ref = db
     .collection("liveLocations")
     .doc(`${rideId}_${request.auth!.uid}`);
+  let separationAlert: { count: number; distanceM: number } | undefined;
   if (active === false) await ref.delete();
   else {
     if (!isPoint({ lat: Number(lat), lng: Number(lng) }))
       throw new HttpsError("invalid-argument", "위치 정보를 확인해 주세요.");
+    const accuracyM = Number((request.data as { accuracyM?: number }).accuracyM);
+    if (!Number.isFinite(accuracyM) || accuracyM < 0 || accuracyM > 100)
+      throw new HttpsError("failed-precondition", "GPS 정확도가 낮아 안전 알림에 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+    const now = Date.now();
     await ref.set({
       rideId,
       userId: request.auth!.uid,
       lat,
       lng,
+      accuracyM,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    const peerRows = await db.collection("liveLocations").where("rideId", "==", rideId).limit(50).get();
+    const alertPeerIds: string[] = [];
+    let greatestDistanceM = 0;
+    for (const peer of peerRows.docs) {
+      const peerData = peer.data();
+      const peerId = String(peerData.userId ?? "");
+      if (!peerId || peerId === request.auth!.uid || !isPoint({ lat: Number(peerData.lat), lng: Number(peerData.lng) })) continue;
+      const participants = [request.auth!.uid, peerId].sort();
+      const stateRef = db.collection("rideSeparationAlerts").doc(`${rideId}_${participants[0]}_${participants[1]}`);
+      const distanceM = distanceMeters({ lat: Number(lat), lng: Number(lng) }, { lat: Number(peerData.lat), lng: Number(peerData.lng) });
+      const result = await db.runTransaction(async tx => {
+        const snapshot = await tx.get(stateRef);
+        const assessment = assessSeparation({
+          now,
+          distanceM,
+          currentAccuracyM: accuracyM,
+          peerAccuracyM: Number(peerData.accuracyM),
+          peerUpdatedAt: peerData.updatedAt?.toMillis?.() ?? 0,
+          previous: snapshot.exists ? snapshot.data() : undefined,
+        });
+        if (assessment.eligible) tx.set(stateRef, { ...assessment.state, rideId, participants, updatedAt: FieldValue.serverTimestamp() });
+        return assessment;
+      });
+      if (result.alert) {
+        alertPeerIds.push(peerId);
+        greatestDistanceM = Math.max(greatestDistanceM, distanceM);
+      }
+    }
+    if (alertPeerIds.length) {
+      separationAlert = { count: alertPeerIds.length, distanceM: Math.round(greatestDistanceM / 50) * 50 };
+      const recipientIds = [...new Set([request.auth!.uid, ...alertPeerIds])];
+      const profiles = await db.getAll(...recipientIds.map(uid => db.collection("users").doc(uid)));
+      const enabledIds = profiles.filter(profile => profile.data()?.notifications?.safety !== false).map(profile => profile.id);
+      const tokenRows = await Promise.all(Array.from({ length: Math.ceil(enabledIds.length / 10) }, (_, index) =>
+        db.collection("deviceTokens").where("userId", "in", enabledIds.slice(index * 10, index * 10 + 10)).get(),
+      ));
+      const tokens = [...new Set(tokenRows.flatMap(rows => rows.docs.map(row => String(row.data().token ?? "")).filter(Boolean)))];
+      for (let index = 0; index < tokens.length; index += 500)
+        await getMessaging().sendEachForMulticast({
+          tokens: tokens.slice(index, index + 500),
+          notification: { title: "일행과 거리가 벌어졌어요", body: `약 ${Math.round(greatestDistanceM / 50) * 50}m 떨어져 있습니다. 안전한 곳에서 서로의 위치를 확인해 주세요.` },
+          data: { rideId, url: "./?view=my", type: "separation" },
+          webpush: { notification: { tag: `ride-separation-${rideId}`, renotify: true } },
+        });
+    }
   }
-  return { ok: true };
+  return separationAlert ? { ok: true, separationAlert } : { ok: true };
 });
 
 export const listRideLiveLocations = onCall({ region }, async (request) => {
@@ -1466,6 +1522,7 @@ export const listRideLiveLocations = onCall({ region }, async (request) => {
       userId: String(row.data().userId),
       name: String(profiles[index].data()?.displayName ?? "라이더"),
       coordinate: { lat: Number(row.data().lat), lng: Number(row.data().lng) },
+      accuracyM: Number(row.data().accuracyM),
       updatedAt: row.data().updatedAt?.toDate?.()?.toISOString?.() ?? null,
     })),
   };

@@ -15,9 +15,14 @@ async function mockSearch(status?: string) {
     kakao: {
       maps: {
         load: (callback: () => void) => callback(),
+        LatLng: class {},
         services: {
+          SortBy: { DISTANCE: "distance" },
           Status: { OK: "OK", ZERO_RESULT: "ZERO_RESULT" },
           Places: class {
+            categorySearch(_query: string, callback: (rows: unknown[], status: string) => void) {
+              if (status) callback([], status);
+            }
             keywordSearch(_query: string, callback: (rows: unknown[], status: string) => void) {
               if (status) callback([], status);
             }
@@ -30,6 +35,18 @@ async function mockSearch(status?: string) {
 }
 
 describe("장소 검색 상태", () => {
+  it("시설 검색 콜백이 누락되어도 무한 로딩하지 않는다", async () => {
+    vi.useFakeTimers();
+    await mockSearch();
+    const { searchCoursePois } = await import("./kakao");
+    const result = expect(searchCoursePois([{ lat: 37.5, lng: 127 }])).resolves.toEqual([]);
+    await vi.advanceTimersByTimeAsync(10000);
+    await result;
+  });
+  it("좌표가 없으면 SDK 설정 없이 빈 시설 목록을 반환한다", async () => {
+    const { searchCoursePois } = await import("./kakao");
+    await expect(searchCoursePois([])).resolves.toEqual([]);
+  });
   it("검색 결과 없음을 정상적인 빈 배열로 반환한다", async () => {
     const search = await mockSearch("ZERO_RESULT");
     await expect(search("양재천")).resolves.toEqual([]);

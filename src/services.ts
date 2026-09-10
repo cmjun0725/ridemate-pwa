@@ -211,8 +211,9 @@ export const updateLiveLocation = (input: {
   rideId: string;
   lat?: number;
   lng?: number;
+  accuracyM?: number;
   active: boolean;
-}) => callable<typeof input, { ok: boolean }>("updateLiveLocation", input);
+}) => callable<typeof input, { ok: boolean; separationAlert?: { count: number; distanceM: number } }>("updateLiveLocation", input);
 export const listRideLiveLocations = (rideId: string) =>
   callable<{ rideId: string }, { locations: LiveLocation[] }>(
     "listRideLiveLocations",

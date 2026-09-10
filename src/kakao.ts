@@ -18,12 +18,16 @@ export function loadKakaoMaps() {
       reject(new Error("카카오 JavaScript 키가 설정되지 않았습니다."));
       return;
     }
+    const timer = window.setTimeout(() => reject(new Error("카카오맵 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.")), 12000);
     const finish = () => {
       if (!window.kakao?.maps) {
         reject(new Error("카카오맵 SDK 객체를 찾지 못했습니다."));
         return;
       }
-      window.kakao.maps.load(() => resolve(window.kakao));
+      window.kakao.maps.load(() => {
+        window.clearTimeout(timer);
+        resolve(window.kakao);
+      });
     };
     if (window.kakao?.maps) {
       finish();
@@ -53,15 +57,6 @@ export function loadKakaoMaps() {
         ),
       );
     document.head.appendChild(script);
-    window.setTimeout(
-      () =>
-        reject(
-          new Error(
-            "카카오맵 응답 시간이 초과되었습니다. JavaScript SDK 도메인을 확인해 주세요.",
-          ),
-        ),
-      12000,
-    );
   });
   void kakaoPromise.catch(() => {
     document.querySelector<HTMLScriptElement>("script[data-kakao-map]")?.remove();
@@ -75,6 +70,7 @@ export async function geocodePlace(
 ): Promise<Coordinate & { name: string }> {
   const kakao = await loadKakaoMaps();
   return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("장소 검색 응답이 늦어지고 있습니다. 다시 검색해 주세요.")), 10000);
     const places = new kakao.maps.services.Places();
     places.keywordSearch(
       query,
@@ -86,6 +82,7 @@ export async function geocodePlace(
         }>,
         status: string,
       ) => {
+        window.clearTimeout(timer);
         if (status !== kakao.maps.services.Status.OK || !results[0]) {
           reject(
             new Error(
@@ -145,8 +142,8 @@ export async function searchPlaces(query: string): Promise<PlaceSearchResult[]> 
 export async function searchCoursePois(
   route: Coordinate[],
 ): Promise<Stop[]> {
-  const kakao = await loadKakaoMaps();
   if (!route.length) return [];
+  const kakao = await loadKakaoMaps();
 
   const sampleCount = Math.min(8, Math.max(3, Math.ceil(route.length / 180)));
   const samples = Array.from({ length: sampleCount }, (_, index) =>
@@ -169,6 +166,7 @@ export async function searchCoursePois(
       category?: string,
     ) =>
       new Promise<Stop[]>((resolve) => {
+        const timer = window.setTimeout(() => resolve([]), 10000);
         const options = {
           location: new kakao.maps.LatLng(point.lat, point.lng),
           radius,
@@ -183,7 +181,8 @@ export async function searchCoursePois(
             x: string;
           }>,
           status: string,
-        ) =>
+        ) => {
+          window.clearTimeout(timer);
           resolve(
             status === kakao.maps.services.Status.OK
               ? rows.map((row) => ({
@@ -197,6 +196,7 @@ export async function searchCoursePois(
                 }))
               : [],
           );
+        };
         if (category) places.categorySearch(category, callback, options);
         else places.keywordSearch(keyword, callback, options);
       });

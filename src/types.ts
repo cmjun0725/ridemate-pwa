@@ -30,6 +30,7 @@ export interface LiveLocation {
   name: string;
   coordinate: Coordinate;
   updatedAt?: string;
+  accuracyM?: number;
 }
 export interface Course {
   id: string;

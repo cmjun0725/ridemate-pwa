@@ -5,6 +5,7 @@ import "./styles.css";
 import "./features.css";
 import "./design.css";
 import App from "./App";
+import { ToastHost } from "./toast";
 
 if ("serviceWorker" in navigator)
   window.addEventListener("load", () => {
@@ -23,6 +24,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
       <App />
+      <ToastHost />
     </ErrorBoundary>
   </StrictMode>,
 );

@@ -79,6 +79,14 @@ describe("라이딩 도메인 정책", () => {
     expect(isNoShowConfirmed(4, 2)).toBe(false);
     expect(isNoShowConfirmed(3, 2)).toBe(true);
   });
+  it("자리 있음 필터는 출발 시각이 지난 방을 제외한다", () => {
+    expect(filterPublicRides([ride(40, 24)], "", Infinity, 60, {
+      onlyAvailable: true, now: new Date("2026-09-01T00:00:00.000Z"),
+    })).toEqual([]);
+  });
+  it("거리 전체는 200km를 넘는 라이딩도 표시한다", () => {
+    expect(filterPublicRides([ride(250, 24)], "", Infinity, 60)).toHaveLength(1);
+  });
   it("방 제목과 설명의 금지 표현을 띄어쓰기 우회까지 검출한다", () => {
     expect(validateRideContent("주말 한강 라이딩", "초보 환영")).toBeUndefined();
     expect(validateRideContent("건강 섹 스 라이딩")).toContain("사용할 수 없는");

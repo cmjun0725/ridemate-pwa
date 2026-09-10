@@ -20,7 +20,9 @@ export async function listenForForegroundMessages() {
         body: payload.notification?.body ?? "라이딩 업데이트를 확인해 주세요.",
         icon: `${import.meta.env.BASE_URL}icon-192.png`,
         badge: `${import.meta.env.BASE_URL}icon-192.png`,
-        tag: payload.data?.rideId ? `ride-${payload.data.rideId}` : "ridemate-update",
+        tag: payload.data?.type === "separation" && payload.data?.rideId
+          ? `ride-separation-${payload.data.rideId}`
+          : payload.data?.rideId ? `ride-${payload.data.rideId}` : "ridemate-update",
         data: { url: payload.data?.rideId ? `${import.meta.env.BASE_URL}?view=my` : import.meta.env.BASE_URL },
       },
     );

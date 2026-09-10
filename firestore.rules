@@ -21,6 +21,7 @@ service cloud.firestore {
     match /rideFavorites/{favoriteId} { allow read, write: if false; }
     match /rideReviews/{reviewId} { allow read, write: if false; }
     match /liveLocations/{locationId} { allow read, write: if false; }
+    match /rideSeparationAlerts/{alertId} { allow read, write: if false; }
     match /rideArchives/{archiveId} { allow read, write: if false; }
     match /productEvents/{eventId} { allow read, write: if false; }
   }

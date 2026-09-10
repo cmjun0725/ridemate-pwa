@@ -1,4 +1,4 @@
-const CACHE = "ridemate-shell-v10";
+const CACHE = "ridemate-shell-v11";
 const ASSETS = [
   "./",
   "./offline.html",
@@ -39,7 +39,8 @@ self.addEventListener("fetch", (event) => {
           if (response.ok)
             await caches
               .open(CACHE)
-              .then((cache) => cache.put("./", response.clone()));
+              .then((cache) => cache.put("./", response.clone()))
+              .catch(() => undefined);
           return response;
         })
         .catch(
@@ -63,7 +64,8 @@ self.addEventListener("fetch", (event) => {
         if (response.ok && response.type === "basic")
           await caches
             .open(CACHE)
-            .then((cache) => cache.put(request, response.clone()));
+            .then((cache) => cache.put(request, response.clone()))
+            .catch(() => undefined);
         return response;
       });
     }),

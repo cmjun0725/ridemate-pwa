@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { SelectMenu } from "./SelectMenu";
 import { CancelRideButton } from "./CancelRideButton";
+import { toast } from "./toast";
 import {
   Bell,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleUserRound,
   Clock3,
@@ -20,6 +22,7 @@ import {
   Share2,
   ShieldCheck,
   Star,
+  RefreshCw,
   Trash2,
   Users,
   X,
@@ -40,7 +43,6 @@ import { auth } from "./firebase";
 import { buildRideStart, filterPublicRides, validateRideContent } from "./domain";
 import { geocodePlace, loadKakaoMaps, searchCoursePois, searchPlaces, type PlaceSearchResult } from "./kakao";
 import {
-  bootstrapAdmin,
   createRideReview,
   createRidePlan,
   finishPublicRide,
@@ -129,16 +131,97 @@ const readPlans = (): SavedPlan[] => {
     return [];
   }
 };
+/* 시각을 24시간제 텍스트(예: 19:30)로 받아 시작 시각을 만든다. */
+const buildRideStart24 = (date: string, time24: string) => {
+  if (!date) return undefined;
+  const match = /^(\d{1,2}):(\d{1,2})$/.exec(String(time24 ?? "").trim());
+  if (!match) throw new Error("출발 시각을 24시간제로 입력해 주세요. (예: 19:30)");
+  const hour = Number(match[1]);
+  if (hour > 23) throw new Error("시각의 시간은 0~23 사이로 입력해 주세요.");
+  const minute = Number(match[2]);
+  if (minute > 59) throw new Error("시각의 분은 0~59 사이로 입력해 주세요.");
+  return buildRideStart(
+    date,
+    hour >= 12 ? "PM" : "AM",
+    hour % 12 || 12,
+    String(minute).padStart(2, "0"),
+  );
+};
 const startsAtFrom = (form: FormData) => {
   const date = String(form.get("rideDate") ?? "");
   if (!date) return undefined;
-  return buildRideStart(
-    date,
-    String(form.get("ridePeriod")),
-    Number(form.get("rideHour") ?? 8),
-    String(form.get("rideMinute") ?? "00"),
-  );
+  return buildRideStart24(date, String(form.get("rideTime") ?? ""));
 };
+
+type SelectOption = { value: string; label: string };
+
+/* 홈 화면 SelectMenu와 동일한 드롭다운을 폼 안에서도 쓰기 위한 래퍼.
+   폼 제출(FormData)과 name 기반 값을 유지하도록 hidden input을 함께 심는다. */
+function FormSelect({
+  name,
+  label,
+  options,
+  defaultValue,
+  compact = false,
+}: {
+  name: string;
+  label: string;
+  options: SelectOption[];
+  defaultValue?: string;
+  compact?: boolean;
+}) {
+  const [value, setValue] = useState(
+    defaultValue ?? options[0]?.value ?? "",
+  );
+  return (
+    <>
+      <SelectMenu
+        compact={compact}
+        label={label}
+        value={value}
+        onChange={setValue}
+        options={options}
+      />
+      <input type="hidden" name={name} value={value} />
+    </>
+  );
+}
+
+/* 제목만 보이고 화살표를 누르면 상세 내용이 펼쳐지는 안내 카드. */
+function Disclosure({
+  title,
+  badge,
+  tone = "soft",
+  defaultOpen = false,
+  children,
+}: {
+  title: React.ReactNode;
+  badge?: React.ReactNode;
+  tone?: "soft" | "climb";
+  defaultOpen?: boolean;
+  children?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`disclosure ${tone}`}>
+      <button
+        type="button"
+        className="disclosure-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="disclosure-title">{title}</span>
+        {badge != null && <span className="disclosure-badge">{badge}</span>}
+        <ChevronDown
+          size={15}
+          aria-hidden="true"
+          className={`disclosure-caret ${open ? "open" : ""}`}
+        />
+      </button>
+      {open && <div className="disclosure-body">{children}</div>}
+    </section>
+  );
+}
 
 const recoverStoredRoute = async (
   startName: string,
@@ -316,10 +399,12 @@ function RouteFallback({
   routes,
   selected,
   stops,
+  showFacilityNames,
 }: {
   routes: Coordinate[][];
   selected: number;
   stops: Stop[];
+  showFacilityNames: boolean;
 }) {
   const points = routes.flat();
   if (points.length < 2) return null;
@@ -329,8 +414,11 @@ function RouteFallback({
   const maxLng = Math.max(...points.map((point) => point.lng));
   const latRange = Math.max(maxLat - minLat, 0.0001);
   const lngRange = Math.max(maxLng - minLng, 0.0001);
-  const project = (point: Coordinate) =>
-    `${24 + ((point.lng - minLng) / lngRange) * 552},${18 + ((maxLat - point.lat) / latRange) * 214}`;
+  const projectPoint = (point: Coordinate): [number, number] => [
+    24 + ((point.lng - minLng) / lngRange) * 552,
+    18 + ((maxLat - point.lat) / latRange) * 214,
+  ];
+  const project = (point: Coordinate) => projectPoint(point).join(",");
   const stopColor: Record<string, string> = {
     편의점: "#087458",
     화장실: "#2874c6",
@@ -354,19 +442,26 @@ function RouteFallback({
           opacity={index === selected ? 1 : 0.55}
         />
       ))}
+      {(() => {
+        const route = routes[selected] ?? routes[0];
+        if (!route || route.length < 3) return null;
+        const closedRoute = Math.hypot(route[0].lat - route.at(-1)!.lat, route[0].lng - route.at(-1)!.lng) < 0.003;
+        const ratios = closedRoute ? [0.12, 0.25, 0.38, 0.5, 0.62, 0.75, 0.88] : [0.15, 0.3, 0.45, 0.6, 0.75, 0.9];
+        return ratios.map((ratio) => {
+          const i = Math.min(route.length - 2, Math.floor((route.length - 1) * ratio));
+          const [x, y] = projectPoint(route[i]);
+          const [nx, ny] = projectPoint(route[i + 1]);
+          const angle = Math.atan2(ny - y, nx - x) * 180 / Math.PI;
+          const color = closedRoute && ratio > 0.5 ? "#286cbb" : "#087458";
+          return <g key={`fb-arrow-${ratio}`} transform={`translate(${x} ${y}) rotate(${angle})`} opacity="0.85"><circle r="6" fill={color} stroke="#fff" strokeWidth="1.5" /><path d="M-3,-3.5 L4,0 L-3,3.5 Z" fill="#fff" /></g>;
+        });
+      })()}
       {stops.map((stop) => {
         const [cx, cy] = project(stop.coordinate).split(",");
-        return (
-          <circle
-            key={`fallback-stop-${stop.id}`}
-            cx={cx}
-            cy={cy}
-            r="6"
-            fill={stopColor[stop.kind]}
-            stroke="#fff"
-            strokeWidth="2"
-          />
-        );
+        return <g key={`fallback-stop-${stop.id}`}>
+          <circle cx={cx} cy={cy} r="6" fill={stopColor[stop.kind]} stroke="#fff" strokeWidth="2" />
+          {showFacilityNames && <text x={Number(cx) + 9} y={Number(cy) + 3} className="fallback-facility-name">{stop.name}</text>}
+        </g>;
       })}
     </svg>
   );
@@ -380,6 +475,7 @@ function CourseMap({
   climbSegments = [],
   liveLocations = emptyLocations,
   missingRouteMessage = "이 라이딩에는 경로 좌표가 저장되어 있지 않습니다.",
+  showFacilityNames = false,
 }: {
   routes: Coordinate[][];
   selected?: number;
@@ -388,6 +484,7 @@ function CourseMap({
   climbSegments?: ClimbSegment[];
   liveLocations?: LiveLocation[];
   missingRouteMessage?: string;
+  showFacilityNames?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -451,11 +548,33 @@ function CourseMap({
             map,
             title: "도착",
           });
+          const closedRoute = route.length > 8 && Math.hypot(route[0].lat - last.lat, route[0].lng - last.lng) < 0.003;
+          const ratios = closedRoute
+            ? [0.12, 0.25, 0.38, 0.5, 0.62, 0.75, 0.88]
+            : [0.15, 0.3, 0.45, 0.6, 0.75, 0.9];
+          const labelRatio = closedRoute ? 0.25 : 0.3;
+          ratios.forEach((ratio) => {
+            const pointIndex = Math.min(route.length - 2, Math.max(0, Math.floor((route.length - 1) * ratio)));
+            const point = route[pointIndex];
+            const nextPoint = route[pointIndex + 1];
+            const angle = Math.atan2(-(nextPoint.lat - point.lat), nextPoint.lng - point.lng) * 180 / Math.PI;
+            const kind = closedRoute && ratio > 0.5 ? "return" : "outbound";
+            const label = Math.abs(ratio - labelRatio) < 0.03 ? (closedRoute ? "가는 길" : "") : (closedRoute && Math.abs(ratio - 0.75) < 0.03 ? "오는 길" : "");
+            const direction = document.createElement("div");
+            direction.className = `route-direction ${kind}`;
+            direction.innerHTML = `<i style="transform:rotate(${angle}deg)">➤</i>${label ? `<span>${label}</span>` : ""}`;
+            new kakao.maps.CustomOverlay({
+              position: new kakao.maps.LatLng(point.lat, point.lng),
+              content: direction,
+              yAnchor: 0.5,
+              zIndex: 6,
+            }).setMap(map);
+          });
         }
         stops.forEach((stop) => {
           const meta = facilityMeta[stop.kind];
           const marker = document.createElement("div");
-          marker.className = `facility-marker ${meta.className}`;
+          marker.className = `facility-marker ${meta.className}${showFacilityNames ? " always-expanded" : ""}`;
           marker.title = `${stop.kind} · ${stop.name}`;
           marker.tabIndex = 0;
           marker.setAttribute("role", "button");
@@ -498,7 +617,7 @@ function CourseMap({
             zIndex: 8,
           }).setMap(map);
         });
-        map.setBounds(bounds);
+        map.setBounds(bounds, 42, 42, 42, 42);
         if (active) setStatus("ready");
       })
       .catch((error) => {
@@ -514,7 +633,7 @@ function CourseMap({
     return () => {
       active = false;
     };
-  }, [routes, selected, stops, climbSegments, liveLocations, attempt, missingRouteMessage]);
+  }, [routes, selected, stops, climbSegments, liveLocations, attempt, missingRouteMessage, showFacilityNames]);
   const hasRoute = routes.some((route) => route.length);
   return (
     <div
@@ -529,7 +648,7 @@ function CourseMap({
           <b>{status === "error" ? "지도를 표시할 수 없어요" : message}</b>
           {status === "error" && (
             <>
-              {hasRoute && <RouteFallback routes={routes} selected={selected} stops={stops} />}
+              {hasRoute && <RouteFallback routes={routes} selected={selected} stops={stops} showFacilityNames={showFacilityNames} />}
               <small>
                 {message}
                 {hasRoute && (
@@ -577,16 +696,19 @@ function CourseMap({
 function FacilityList({ stops, loading = false, compact = false }: { stops: Stop[]; loading?: boolean; compact?: boolean }) {
   if (loading) return <p className="muted">편의점·화장실·자전거 정비점 찾는 중…</p>;
   if (!stops.length) return <p className="muted">코스 주변에서 확인된 편의시설이 없습니다.</p>;
+  const limit = compact ? 3 : undefined;
   return (
     <div className={`facility-groups ${compact ? "compact" : ""}`}>
       {(["편의점", "화장실", "정비소", "휴식"] as const).map((kind) => {
         const rows = stops.filter((stop) => stop.kind === kind);
         if (!rows.length) return null;
         const meta = facilityMeta[kind];
+        const visible = rows.slice(0, limit);
+        const hidden = rows.length - visible.length;
         return (
           <section className={`facility-group ${meta.className}`} key={kind}>
             <h3><span>{meta.icon}</span>{kind === "정비소" ? "자전거 정비점" : kind === "휴식" ? "지정 휴식 지점" : kind}<small>{rows.length}곳</small></h3>
-            <div>{rows.slice(0, compact ? 4 : undefined).map((stop) => <span key={stop.id} title={`${stop.name}${stop.distanceFromRouteM != null ? ` · 코스에서 ${stop.distanceFromRouteM}m` : ""}`}><b>{stop.name}</b>{stop.distanceFromRouteM != null && <small>코스에서 {stop.distanceFromRouteM}m</small>}</span>)}</div>
+            <div>{visible.map((stop) => <span key={stop.id} title={`${stop.name}${stop.distanceFromRouteM != null ? ` · 코스에서 ${stop.distanceFromRouteM}m` : ""}`}><b>{stop.name}</b>{stop.distanceFromRouteM != null && <small>코스에서 {stop.distanceFromRouteM}m</small>}</span>)}{hidden > 0 && <span className="facility-more"><small>+{hidden}곳 더</small></span>}</div>
           </section>
         );
       })}
@@ -669,6 +791,7 @@ function ElevationChart({ points }: { points: ElevationPoint[] }) {
 function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
   const memberCount = ride.memberCount ?? ride.members?.length ?? 1;
   const remaining = Math.max(0, ride.capacity - memberCount);
+  const departurePassed = new Date(ride.startsAt).getTime() <= Date.now();
   return (
     <button
       className="ride-card"
@@ -691,7 +814,7 @@ function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
         </span>
         <span>{ride.paceKmh}km/h</span>
         <span className={`open ${remaining === 0 ? "full" : ""}`}>
-          {remaining > 0 ? `${remaining}자리 남음` : "모집 마감"}
+          {departurePassed ? "출발 시각 지남" : ride.status !== "모집중" || remaining === 0 ? "모집 마감" : `${remaining}자리 남음`}
         </span>
         <ChevronRight size={18} aria-hidden="true" />
       </div>
@@ -870,11 +993,12 @@ function RideDetail({
       if (joined) await leavePublicRide(ride.id);
       else {
         await joinPublicRide(ride.id);
-        await trackProductEvent("ride_join");
+        void trackProductEvent("ride_join").catch(() => undefined);
       }
       const next = await getRideDetails(ride.id);
       setRide(next);
       setJoined(Boolean(next.joined));
+      toast(joined ? "라이딩 참여를 취소했습니다." : "라이딩에 참여했습니다.");
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -913,7 +1037,7 @@ function RideDetail({
       await updateLiveLocation({ rideId: ride.id, active: false });
       setSharing(false);
       setLiveLocations((rows) => rows.filter((row) => row.userId !== auth?.currentUser?.uid));
-      setMessage("안전 위치 공유를 종료했습니다.");
+      toast("안전 위치 공유를 종료했습니다.", "info");
       return;
     }
     if (!navigator.geolocation)
@@ -923,21 +1047,24 @@ function RideDetail({
         if (Date.now() - lastLocationSentRef.current < 20000) return;
         try {
           lastLocationSentRef.current = Date.now();
-          await updateLiveLocation({
+          const result = await updateLiveLocation({
             rideId: ride.id,
             lat: position.coords.latitude,
             lng: position.coords.longitude,
+            accuracyM: position.coords.accuracy,
             active: true,
           });
+          if (result.separationAlert)
+            toast(`일행과 약 ${result.separationAlert.distanceM}m 떨어져 있습니다. 안전한 곳에서 서로의 위치를 확인해 주세요.`, "error", 6000);
           setSharing(true);
-          setMessage("15분 동안 참여자에게 현재 위치를 공유합니다.");
+          if (!result.separationAlert) toast("15분 동안 참여자에게 현재 위치를 공유합니다.", "info");
           if (locationTimerRef.current == null)
             locationTimerRef.current = window.setTimeout(() => {
               if (locationWatchRef.current != null) navigator.geolocation.clearWatch(locationWatchRef.current);
               locationWatchRef.current = null;
               locationTimerRef.current = null;
               setSharing(false);
-              setMessage("15분이 지나 안전 위치 공유를 자동 종료했습니다.");
+              toast("15분이 지나 안전 위치 공유를 자동 종료했습니다.", "info");
               void updateLiveLocation({ rideId: ride.id, active: false });
             }, 15 * 60 * 1000);
         } catch (error) {
@@ -974,7 +1101,7 @@ function RideDetail({
       if (navigator.share) await navigator.share(shareData);
       else {
         await navigator.clipboard.writeText(shareData.url);
-        setMessage("라이딩 링크를 복사했습니다.");
+        toast("라이딩 링크를 복사했습니다.", "info");
       }
     } catch (error) {
       if ((error as DOMException)?.name !== "AbortError")
@@ -988,7 +1115,7 @@ function RideDetail({
       if (action === "start") await startPublicRide(ride.id);
       else await finishPublicRide(ride.id);
       setRide(await getRideDetails(ride.id));
-      setMessage(action === "start" ? "라이딩을 시작했습니다. 경로와 안전 정보를 확인하세요." : "라이딩을 종료했습니다.");
+      toast(action === "start" ? "라이딩을 시작했습니다. 경로와 안전 정보를 확인하세요." : "라이딩을 종료했습니다.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "라이딩 상태를 변경하지 못했습니다.");
     } finally {
@@ -1000,19 +1127,14 @@ function RideDetail({
       <button className="back" onClick={onBack}>
         ← 목록으로
       </button>
-      {detailRouteRecovery === "loading" ? (
-        <div className="map live-map"><div className="map-state" role="status"><b>출발·도착지로 자전거 경로 복구 중…</b></div></div>
-      ) : (
-        <CourseMap
-          routes={detailMapRoutes}
-          label={ride.course.title}
-          stops={mapStops}
-          climbSegments={ride.course.climbSegments ?? []}
-          liveLocations={liveLocations}
-          missingRouteMessage={detailRouteMessage}
-        />
-      )}
-      {stops.length > 0 && <FacilityFilter stops={stops} value={facilityFilter} onChange={setFacilityFilter} />}
+      <div className="map-facilities-layout">
+        {detailRouteRecovery === "loading" ? (
+          <div className="map live-map"><div className="map-state" role="status"><b>출발·도착지로 자전거 경로 복구 중…</b></div></div>
+        ) : (
+          <CourseMap routes={detailMapRoutes} label={ride.course.title} stops={mapStops} climbSegments={ride.course.climbSegments ?? []} liveLocations={liveLocations} missingRouteMessage={detailRouteMessage} showFacilityNames={facilityFilter !== "전체"} />
+        )}
+        <aside className="map-facilities"><b>코스 주변 시설</b>{stops.length > 0 && <FacilityFilter stops={stops} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={mapStops} compact /></aside>
+      </div>
       <div className="ride-flow" aria-label="라이딩 진행 단계">
         <span className="done">1 코스 선정</span>
         <span className={ride.status !== "계획" ? "done" : ""}>2 인원 모집</span>
@@ -1054,6 +1176,7 @@ function RideDetail({
             setFavorite(next);
             try {
               await setFavoriteRide(ride.id, next);
+              toast(next ? "관심 코스로 저장했어요." : "관심 코스에서 삭제했어요.");
             } catch {
               setFavorite(!next);
               setMessage("관심 코스 설정을 변경하지 못했습니다.");
@@ -1090,7 +1213,7 @@ function RideDetail({
                 details: String(form.get("details")),
               });
               setReportOpen(false);
-              setMessage("신고가 접수되어 관리자가 확인합니다.");
+              toast("신고가 접수되어 관리자가 확인합니다.");
             } catch (error) {
               setMessage(
                 error instanceof Error
@@ -1103,12 +1226,16 @@ function RideDetail({
           <h2>방장 신고</h2>
           <label>
             사유
-            <select name="category">
-              <option value="unsafe">위험한 라이딩</option>
-              <option value="harassment">괴롭힘·불쾌한 행동</option>
-              <option value="no_show">노쇼</option>
-              <option value="other">기타</option>
-            </select>
+            <FormSelect
+              name="category"
+              label="신고 사유"
+              options={[
+                { value: "unsafe", label: "위험한 라이딩" },
+                { value: "harassment", label: "괴롭힘·불쾌한 행동" },
+                { value: "no_show", label: "노쇼" },
+                { value: "other", label: "기타" },
+              ]}
+            />
           </label>
           <label>
             상세 내용
@@ -1122,7 +1249,7 @@ function RideDetail({
                 try {
                   await setUserBlocked(targetId, true);
                   setReportOpen(false);
-                  setMessage("이 사용자를 차단했습니다.");
+                  toast("이 사용자를 차단했습니다.", "info");
                 } catch (error) {
                   setMessage(
                     error instanceof Error
@@ -1169,14 +1296,6 @@ function RideDetail({
       </p>
       {(ride.course.elevationProfile?.length ?? 0) > 1 && (
         <ElevationChart points={ride.course.elevationProfile ?? []} />
-      )}
-      {(ride.course.climbSegments?.length ?? 0) > 0 && (
-        <article className="info climb-list" aria-label="분석된 업힐">
-          <h2><Mountain aria-hidden="true" /> 분석된 업힐</h2>
-          {(ride.course.climbSegments ?? []).map((segment, index) => (
-            <p key={segment.id}><b>{index + 1}번째 업힐</b><span>{segment.startKm}–{segment.endKm}km · +{segment.gainM}m · 평균 {segment.avgGradient}%</span></p>
-          ))}
-        </article>
       )}
       {ride.status === "진행중" && joined && (
         <article className="riding-mode" role="status">
@@ -1240,7 +1359,7 @@ function RideDetail({
                   await updateCourseStops(ride.id, selectedStopIds);
                   setDetailStops((current) => current.map((stop) => ({ ...stop, selected: selectedStopIds.includes(stop.id) })));
                   setEditingStops(false);
-                  setMessage(`${selectedStopIds.length}곳을 정차 지점으로 확정했습니다.`);
+                  toast(`${selectedStopIds.length}곳을 정차 지점으로 확정했습니다.`);
                 } catch (error) {
                   setMessage(error instanceof Error ? error.message : "정차 지점을 저장하지 못했습니다.");
                 } finally {
@@ -1258,12 +1377,6 @@ function RideDetail({
             ) : (
               <p className="muted">아직 확정된 정차 지점이 없습니다.</p>
             )}
-            {stops.length > 0 && (
-              <details className="nearby-facilities">
-                <summary>코스 주변 추천 시설 {mapStops.length}곳 보기</summary>
-                <FacilityList stops={mapStops} />
-              </details>
-            )}
           </>
         )}
       </article>
@@ -1273,7 +1386,7 @@ function RideDetail({
             <h2>참여자 안전 위치</h2>
             <span>{liveLocations.length}명 공유 중</span>
           </div>
-          <p className="muted">위치는 참여자에게만 보이며 마지막 전송 후 15분 뒤 만료됩니다.</p>
+          <p className="muted">두 명 이상 공유 중일 때 정확한 최신 위치가 약 350m 이상, 40초간 벌어지면 안전 알림을 보냅니다. 위치는 15분 뒤 만료됩니다.</p>
           {liveLocations.length > 0 && (
             <div className="live-rider-list">
               {liveLocations.map((location) => (
@@ -1311,7 +1424,7 @@ function RideDetail({
                     rating: Number(form.get("rating")),
                     comment: String(form.get("comment") ?? ""),
                   });
-                  setMessage("후기를 등록했습니다.");
+                  toast("후기를 등록했습니다.");
                 } catch (error) {
                   setMessage(
                     error instanceof Error
@@ -1323,25 +1436,28 @@ function RideDetail({
             >
               <label>
                 라이더
-                <select name="targetUserId">
-                  {members
+                <FormSelect
+                  name="targetUserId"
+                  label="후기 대상 라이더"
+                  options={members
                     .filter((member) => member.id !== auth?.currentUser?.uid)
-                    .map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name}
-                      </option>
-                    ))}
-                </select>
+                    .map((member) => ({ value: member.id, label: member.name }))}
+                />
               </label>
               <label>
                 평점
-                <select name="rating" defaultValue="5">
-                  <option value="5">5 · 다시 함께 타고 싶어요</option>
-                  <option value="4">4 · 좋았어요</option>
-                  <option value="3">3 · 보통이에요</option>
-                  <option value="2">2 · 아쉬웠어요</option>
-                  <option value="1">1 · 문제가 있었어요</option>
-                </select>
+                <FormSelect
+                  name="rating"
+                  label="평점"
+                  defaultValue="5"
+                  options={[
+                    { value: "5", label: "5 · 다시 함께 타고 싶어요" },
+                    { value: "4", label: "4 · 좋았어요" },
+                    { value: "3", label: "3 · 보통이에요" },
+                    { value: "2", label: "2 · 아쉬웠어요" },
+                    { value: "1", label: "1 · 문제가 있었어요" },
+                  ]}
+                />
               </label>
               <label>
                 한줄 후기
@@ -1353,45 +1469,52 @@ function RideDetail({
         )}
       {joined && (
         <article className="info chat" aria-label="참여자 대화">
-          <h2>
-            <MessageCircle aria-hidden="true" /> 참여자 대화
-            <small className="chat-live">5초마다 자동 갱신</small>
-          </h2>
+          <div className="chat-header">
+            <h2>
+              <MessageCircle aria-hidden="true" /> 참여자 대화
+            </h2>
+            <span className="chat-live">자동 갱신</span>
+          </div>
           <div className="chat-log" aria-live="polite" aria-busy={chatLoading}>
             {chatLoading && !chat.length && (
-              <p className="muted">대화를 불러오는 중…</p>
+              <div className="chat-empty"><p>대화를 불러오는 중…</p></div>
             )}
-            {chat.map((row) => (
-              <p key={row.id}>
-                <b>
-                  {row.authorName}
-                  {row.createdAt && (
-                    <time dateTime={row.createdAt}>
-                      {new Intl.DateTimeFormat("ko-KR", {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      }).format(new Date(row.createdAt))}
-                    </time>
-                  )}
-                </b>
-                <span>{row.text}</span>
-              </p>
-            ))}
+            {chat.map((row) => {
+              const isMe = row.authorName === auth?.currentUser?.displayName;
+              return (
+                <div key={row.id} className={`chat-bubble ${isMe ? "me" : "other"}`}>
+                  {!isMe && <span className="chat-avatar">{row.authorName.slice(0, 1)}</span>}
+                  <div className="chat-msg">
+                    {!isMe && <b className="chat-author">{row.authorName}</b>}
+                    <span className="chat-text">{row.text}</span>
+                    {row.createdAt && (
+                      <time className="chat-time" dateTime={row.createdAt}>
+                        {new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" }).format(new Date(row.createdAt))}
+                      </time>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
             {!chatLoading && !chat.length && (
-              <p className="muted">집합 장소와 정차 지점을 함께 정해보세요.</p>
+              <div className="chat-empty">
+                <MessageCircle size={28} aria-hidden="true" />
+                <p>첫 메시지를 보내보세요</p>
+                <small>집합 장소와 정차 지점을 함께 정해보세요.</small>
+              </div>
             )}
             <div ref={chatEndRef} aria-hidden="true" />
           </div>
           {chatError && <p className="form-error" role="status">{chatError}</p>}
-          <form onSubmit={submitChat}>
+          <form className="chat-input-bar" onSubmit={submitChat}>
             <input
               aria-label="메시지"
               value={chatText}
               maxLength={500}
               onChange={(event) => setChatText(event.target.value)}
-              placeholder="메시지 입력"
+              placeholder="메시지 입력…"
             />
-            <button className="primary" disabled={busy}>
+            <button className="primary chat-send" disabled={busy || !chatText.trim()}>
               보내기
             </button>
           </form>
@@ -1404,17 +1527,15 @@ function RideDetail({
 function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
   const [enabled, setEnabled] = useState(!optional);
   useEffect(() => setEnabled(!optional), [optional]);
-  const hours = Array.from({ length: 12 }, (_, index) => index + 1);
   const now = new Date();
   const nextSlot = new Date(now.getTime() + 10 * 60000);
   nextSlot.setMinutes(Math.ceil(nextSlot.getMinutes() / 10) * 10, 0, 0);
   const localToday = new Date(nextSlot.getTime() - nextSlot.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 10);
-  const defaultHour24 = nextSlot.getHours();
-  const defaultPeriod = defaultHour24 >= 12 ? "PM" : "AM";
-  const defaultHour12 = defaultHour24 % 12 || 12;
-  const defaultMinute = String(nextSlot.getMinutes()).padStart(2, "0");
+  const defaultTime = `${String(nextSlot.getHours()).padStart(2, "0")}:${String(
+    nextSlot.getMinutes(),
+  ).padStart(2, "0")}`;
   return (
     <div
       className="date-time-fields"
@@ -1423,7 +1544,7 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
     >
       <div className="date-time-head">
         <div className="date-time-title">
-          출발 날짜와 시간 {optional && <span className="optional">선택</span>}
+          출발 날짜와 시간 {optional && <span className="optional">(선택)</span>}
         </div>
         {optional && (
           <button
@@ -1442,42 +1563,23 @@ function RideDateTimeFields({ optional = false }: { optional?: boolean }) {
           날짜
           <input required name="rideDate" type="date" min={localToday} defaultValue={localToday} />
         </label>
-        <label>
-          오전·오후
-          <select required name="ridePeriod" defaultValue={defaultPeriod}>
-            <option value="AM">오전</option>
-            <option value="PM">오후</option>
-          </select>
-        </label>
-        <label>
-          시
-          <select required name="rideHour" defaultValue={String(defaultHour12)}>
-            {hours.map((hour) => (
-              <option key={hour} value={hour}>
-                {hour}시
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          분
-          <select required name="rideMinute" defaultValue={defaultMinute}>
-            <option value="00">00분</option>
-            <option value="10">10분</option>
-            <option value="20">20분</option>
-            <option value="30">30분</option>
-            <option value="40">40분</option>
-            <option value="50">50분</option>
-          </select>
+        <label className="time-field">
+          출발 시각
+          <input
+            required
+            name="rideTime"
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={5}
+            pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]"
+            placeholder="예: 19:30"
+            defaultValue={defaultTime}
+          />
         </label>
       </div> : (
         <p className="schedule-empty">날짜를 정하지 않고 계획만 저장합니다.</p>
       )}
-      <small className="field-help">
-        {optional && !enabled
-          ? "나중에 내 라이딩에서 계획을 확인하고 출발할 수 있어요."
-          : "예: 9월 5일 · 오전 8시 30분"}
-      </small>
     </div>
   );
 }
@@ -1507,7 +1609,6 @@ function CommonRideFields({ solo }: { solo: boolean }) {
               name="restCount"
               type="number"
               min="0"
-              max="20"
               defaultValue="1"
             />
           </label>
@@ -1528,7 +1629,7 @@ function CommonRideFields({ solo }: { solo: boolean }) {
       </div>
       {!solo && (
         <label>
-          집합 위치 상세 안내 <span className="optional">선택</span>
+          집합 위치 상세 안내 <span className="optional">(선택)</span>
           <input
             name="meetingNote"
             maxLength={200}
@@ -1538,7 +1639,7 @@ function CommonRideFields({ solo }: { solo: boolean }) {
         </label>
       )}
       <label>
-        부가 설명 <span className="optional">선택</span>
+        부가 설명 <span className="optional">(선택)</span>
         <textarea
           name="description"
           rows={3}
@@ -1601,7 +1702,7 @@ function CandidateResults({
       active = false;
     };
   }, [candidates, selected]);
-  const store = async () => {
+  const store = async (formDraft?: Partial<RidePlanInput>) => {
     const candidate = candidates[selected];
     const cached = (() => {
       try {
@@ -1612,7 +1713,7 @@ function CandidateResults({
         return {};
       }
     })();
-    const metadata = { ...cached, ...draft };
+    const metadata = { ...cached, ...draft, ...formDraft };
     const startName =
       candidate.startName ?? String(metadata.startName ?? "데이터 분석 출발지");
     setSaving(true);
@@ -1641,10 +1742,14 @@ function CandidateResults({
         climbSegments: candidate.climbSegments,
         stops: pois,
       });
-      await trackProductEvent("course_created");
-      sessionStorage.removeItem("ridemate-create-draft");
-      sessionStorage.removeItem("ridemate-create-work");
-      sessionStorage.removeItem("ridemate-create-selected");
+      void trackProductEvent("course_created").catch(() => undefined);
+      try {
+        sessionStorage.removeItem("ridemate-create-draft");
+        sessionStorage.removeItem("ridemate-create-work");
+        sessionStorage.removeItem("ridemate-create-selected");
+      } catch { /* 저장소 제한이 서버 저장 성공을 실패로 바꾸지 않도록 합니다. */ }
+      createRideWorkMemory = {};
+      toast(solo ? "혼자 라이딩 계획을 저장했어요." : "라이딩 방을 만들었어요.");
       onCreated();
     } catch (error) {
       setSaveError(
@@ -1656,6 +1761,21 @@ function CandidateResults({
       setSaving(false);
     }
   };
+  const formRef = useRef<HTMLFormElement>(null);
+  const storeFromForm = async () => {
+    const formDraft: Partial<RidePlanInput> = {};
+    if (formRef.current) {
+      const form = new FormData(formRef.current);
+      Object.assign(formDraft, {
+        paceKmh: Number(form.get("paceKmh")),
+        capacity: solo ? 1 : Number(form.get("capacity")) + 1,
+        startsAt: startsAtFrom(form),
+        meetingNote: String(form.get("meetingNote") ?? ""),
+        description: String(form.get("description") ?? ""),
+      });
+    }
+    await store(formDraft);
+  };
   return (
     <section className="candidate-results">
       <div className="result-head">
@@ -1666,13 +1786,10 @@ function CandidateResults({
           조건 수정
         </button>
       </div>
-      <CourseMap
-        routes={candidateMapRoutes}
-        selected={selected}
-        label="추천 후보 비교"
-        stops={filteredPois}
-        climbSegments={candidates[selected]?.climbSegments ?? []}
-      />
+      <div className="map-facilities-layout">
+        <CourseMap routes={candidateMapRoutes} selected={selected} label="추천 후보 비교" stops={filteredPois} climbSegments={candidates[selected]?.climbSegments ?? []} showFacilityNames={facilityFilter !== "전체"} />
+        <aside className="map-facilities"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poisLoading} compact /></aside>
+      </div>
       <ElevationChart points={candidates[selected]?.elevationProfile ?? []} />
       {(candidates[selected]?.climbSegments.length ?? 0) > 0 && (
         <article className="climb-list candidate-climbs">
@@ -1682,7 +1799,6 @@ function CandidateResults({
           ))}
         </article>
       )}
-      <article className="poi-summary"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poisLoading} compact /></article>
       <div className="candidate-list">
         {candidates.map((candidate, index) => (
           <button
@@ -1700,16 +1816,46 @@ function CandidateResults({
                 {candidate.distanceKm}km · 상승 {candidate.elevationM}m
               </small>
             </div>
-            <span
-              className={`verified ${candidate.recommended ? "recommended" : ""}`}
-            >
-              {candidate.recommended ? "1순위 추천" : `${index + 1}순위`}
+            <span className="verified">
+              {`${index + 1}순위`}
             </span>
           </button>
         ))}
       </div>
+      <form ref={formRef} className="candidate-fields" onSubmit={(e) => { e.preventDefault(); void storeFromForm(); }}>
+        <RideDateTimeFields optional={solo} />
+        <div className="two">
+          <label>
+            목표 평속
+            <input name="paceKmh" required type="number" min="5" max="60" step="0.1" placeholder="예: 24.5" />
+            <small>km/h</small>
+          </label>
+          {solo ? (
+            <label key="rest-count">
+              예상 휴식 횟수
+              <input name="restCount" type="number" min="0" defaultValue="1" />
+            </label>
+          ) : (
+            <label key="capacity">
+              모집할 인원
+              <input name="capacity" required type="number" min="1" max="49" defaultValue="5" />
+              <small>방장 제외 · 1~49명</small>
+            </label>
+          )}
+        </div>
+        {!solo && (
+          <label>
+            집합 위치 상세 안내 <span className="optional">(선택)</span>
+            <input name="meetingNote" maxLength={200} placeholder="예: 공원 남문 자전거 거치대 앞" />
+          </label>
+        )}
+        <label>
+          부가 설명 <span className="optional">(선택)</span>
+          <textarea name="description" rows={2} placeholder={solo ? "준비물, 보급 계획 등" : "준비물, 라이딩 성격, 주의사항 등"} />
+        </label>
+      </form>
       {saveError && <p className="form-error" role="alert">{saveError}</p>}
-      <button className="primary wide" disabled={saving} onClick={store}>
+      <button className="primary wide" disabled={saving} onClick={() => void storeFromForm()}>
         {saving
           ? "저장 중…"
           : solo
@@ -1720,16 +1866,32 @@ function CandidateResults({
   );
 }
 
+type CreateRideWork = {
+  purpose?: "group" | "solo";
+  mode?: "guided" | "manual";
+  tripType?: "round" | "oneway";
+  candidates?: RouteCandidate[];
+  draft?: Partial<RidePlanInput>;
+  manualPreview?: { plan: RidePlanInput; via?: string } | null;
+};
+let createRideWorkMemory: CreateRideWork = {};
+let courseExplorerMemory: { tripType: "round" | "oneway"; candidates: RouteCandidate[]; selected: number; pois: Stop[] } = {
+  tripType: "round", candidates: [], selected: 0, pois: [],
+};
 function CourseExplorer({ onCreate }: { onCreate: () => void }) {
-  const [tripType, setTripType] = useState<"round" | "oneway">("round");
-  const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
-  const [selected, setSelected] = useState(0);
-  const [pois, setPois] = useState<Stop[]>([]);
+  const [tripType, setTripType] = useState<"round" | "oneway">(courseExplorerMemory.tripType);
+  const [uphill, setUphill] = useState<"low" | "medium" | "high">("medium");
+  const [candidates, setCandidates] = useState<RouteCandidate[]>(courseExplorerMemory.candidates);
+  const [selected, setSelected] = useState(courseExplorerMemory.selected);
+  const [pois, setPois] = useState<Stop[]>(courseExplorerMemory.pois);
   const [loading, setLoading] = useState(false);
   const [poiLoading, setPoiLoading] = useState(false);
   const [facilityFilter, setFacilityFilter] = useState<FacilityFilterValue>("전체");
   const filteredPois = useMemo(() => visibleFacilities(pois, facilityFilter), [pois, facilityFilter]);
   const [error, setError] = useState("");
+  useEffect(() => {
+    courseExplorerMemory = { tripType, candidates, selected, pois };
+  }, [tripType, candidates, selected, pois]);
   useEffect(() => {
     const route = candidates[selected]?.coordinates;
     if (!route?.length) return;
@@ -1747,23 +1909,24 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
       <section className="page course-explorer explorer-results">
         <div className="result-head">
           <div><h1>주변 코스 {candidates.length}개</h1></div>
-          <button className="text-button" onClick={() => { setCandidates([]); setPois([]); }}>조건 수정</button>
         </div>
-        <CourseMap routes={candidates.map((row) => row.coordinates)} selected={selected} stops={filteredPois} climbSegments={candidate.climbSegments} label="주변 코스 탐색 결과" />
+        <div className="map-facilities-layout">
+          <CourseMap routes={candidates.map((row) => row.coordinates)} selected={selected} stops={filteredPois} climbSegments={candidate.climbSegments} label="주변 코스 탐색 결과" showFacilityNames={facilityFilter !== "전체"} />
+          <aside className="map-facilities"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poiLoading} compact /></aside>
+        </div>
         <div className="explorer-grid">
           <div>
             <ElevationChart points={candidate.elevationProfile} />
-            <article className="poi-summary"><b>코스 주변 시설</b>{pois.length > 0 && <FacilityFilter stops={pois} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredPois} loading={poiLoading} compact /></article>
           </div>
           <div className="candidate-list">
             {candidates.map((row, index) => (
               <button key={row.id} className={`candidate-card ${selected === index ? "selected" : ""}`} onClick={() => setSelected(index)}>
                 <span className="route-swatch" style={{ background: routeColors[index] }} />
                 <div><b>{row.title}</b><p>{row.distanceKm}km · 상승 {row.elevationM}m</p></div>
-                <span className={`verified ${row.recommended ? "recommended" : ""}`}>{row.recommended ? "1순위 추천" : "검증됨"}</span>
+                <span className="verified">{`${index + 1}순위`}</span>
               </button>
             ))}
-            <button className="primary wide" onClick={onCreate}>이 조건으로 라이딩 만들기</button>
+            <button className="primary wide" onClick={() => { createRideWorkMemory = { purpose: "group", mode: "guided", tripType, candidates }; try { sessionStorage.removeItem("ridemate-create-draft"); sessionStorage.removeItem("ridemate-create-selected"); sessionStorage.setItem("ridemate-create-work", JSON.stringify(createRideWorkMemory)); } catch { /* 메모리의 코스를 유지합니다. */ } onCreate(); }}>이 조건으로 라이딩 만들기</button>
           </div>
         </div>
       </section>
@@ -1781,7 +1944,9 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
         if (!startName || !Number.isFinite(lat) || !Number.isFinite(lng)) return setError("출발지를 검색한 뒤 정확한 장소를 선택해 주세요.");
         setLoading(true); setError("");
         try {
-          setCandidates(await requestCourseCandidates({ start: { lat, lng }, startName, distanceKm: Number(form.get("distanceKm")), uphill: String(form.get("uphill")) as "low" | "medium" | "high", tripType }));
+          const found = await requestCourseCandidates({ start: { lat, lng }, startName, distanceKm: Number(form.get("distanceKm")), uphill, tripType });
+          setCandidates(found);
+          toast(`주변 코스 ${found.length}개를 찾았어요.`);
           void trackProductEvent("course_explore").catch(() => undefined);
           setSelected(0);
         } catch (reason) {
@@ -1791,7 +1956,7 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
         <PlacePicker name="exploreStart" label="어디에서 출발하나요?" placeholder="역·공원·정확한 장소명 검색" />
         <div className="explore-options">
           <label>희망 거리<input name="distanceKm" type="number" min="5" max="200" defaultValue="30" required /><small>km</small></label>
-          <label>업힐 수준<select name="uphill" defaultValue="medium"><option value="low">평지 위주</option><option value="medium">균형</option><option value="high">도전</option></select></label>
+          <label>업힐 수준<SelectMenu label="업힐 수준" value={uphill} onChange={(value) => setUphill(value as "low" | "medium" | "high")} options={[{ value: "low", label: "평지 위주" }, { value: "medium", label: "균형" }, { value: "high", label: "도전" }]} /></label>
         </div>
         <fieldset><legend>코스 형태</legend><div className="segmented"><button type="button" className={tripType === "round" ? "active" : ""} onClick={() => setTripType("round")}>왕복·순환</button><button type="button" className={tripType === "oneway" ? "active" : ""} onClick={() => setTripType("oneway")}>편도</button></div></fieldset>
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -1819,11 +1984,9 @@ function ManualRouteReview({ plan, via, busy, error, onEdit, onApprove }: {
   return <dialog ref={dialogRef} className="manual-route-review" aria-labelledby="manual-review-title" onCancel={(event) => { event.preventDefault(); if (!busy) onEdit(); }}>
     <div className="manual-review-heading"><div><h2 id="manual-review-title">코스를 확인하고 승인해 주세요</h2><p>아직 {plan.purpose === "solo" ? "계획이 저장되지" : "방이 만들어지지"} 않았습니다.</p></div></div>
     <p className="manual-review-path">{plan.startName} → {via ? `${via} (반환점) → ${plan.startName}` : plan.endName}</p>
-    {visible && <CourseMap routes={routes} stops={filteredStops} climbSegments={plan.climbSegments ?? []} label="승인 전 자전거 코스 확인" />}
+    {visible && <div className="map-facilities-layout"><CourseMap routes={routes} stops={filteredStops} climbSegments={plan.climbSegments ?? []} label="승인 전 자전거 코스 확인" showFacilityNames={facilityFilter !== "전체"} /><aside className="map-facilities"><b>코스 주변 시설</b>{(plan.stops?.length ?? 0) > 0 && <FacilityFilter stops={plan.stops ?? []} value={facilityFilter} onChange={setFacilityFilter} />}<FacilityList stops={filteredStops} compact /></aside></div>}
     <div className="manual-review-summary"><b>{via ? "왕복 전체" : "편도"} {plan.distanceKm}km</b><b>누적 상승 {plan.elevationM ?? 0}m</b><span>평속 {plan.paceKmh}km/h</span><span>{fmt(plan.startsAt ?? "")}</span>{plan.purpose === "group" && <span>방장 포함 {plan.capacity}명</span>}</div>
     <ElevationChart points={plan.elevationProfile ?? []} />
-    {(plan.stops?.length ?? 0) > 0 && <FacilityFilter stops={plan.stops ?? []} value={facilityFilter} onChange={setFacilityFilter} />}
-    <FacilityList stops={filteredStops} compact />
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="manual-review-actions"><button type="button" className="secondary" disabled={busy} onClick={onEdit}>돌아가서 수정</button><button type="button" className="primary" disabled={busy} onClick={onApprove}>{busy ? "저장 중…" : plan.purpose === "solo" ? "이 코스 승인하고 계획 저장" : "이 코스 승인하고 방 만들기"}</button></div>
   </dialog>;
@@ -1838,10 +2001,10 @@ function CreateRide({
   onLogin: () => void;
   onBack: () => void;
 }) {
-  const restored = useRef<null | { purpose?: "group" | "solo"; mode?: "guided" | "manual"; tripType?: "round" | "oneway"; candidates?: RouteCandidate[]; draft?: Partial<RidePlanInput>; manualPreview?: { plan: RidePlanInput; via?: string } }>(null);
+  const restored = useRef<null | CreateRideWork>(null);
   if (restored.current === null) {
-    try { restored.current = JSON.parse(sessionStorage.getItem("ridemate-create-work") ?? "{}"); }
-    catch { restored.current = {}; }
+    try { restored.current = { ...JSON.parse(sessionStorage.getItem("ridemate-create-work") ?? "{}"), ...createRideWorkMemory }; }
+    catch { restored.current = createRideWorkMemory; }
   }
   const initialWork = restored.current ?? {};
   const [purpose, setPurpose] = useState<"group" | "solo">(initialWork.purpose ?? "group");
@@ -1858,6 +2021,7 @@ function CreateRide({
   const solo = purpose === "solo";
   useEffect(() => {
     if (manualDone) {
+      createRideWorkMemory = {};
       try {
         sessionStorage.removeItem("ridemate-create-work");
         sessionStorage.removeItem("ridemate-create-draft");
@@ -1865,6 +2029,7 @@ function CreateRide({
       } catch { /* Storage may be unavailable in private browsing. */ }
       return;
     }
+    createRideWorkMemory = { purpose, mode, tripType, candidates, draft, manualPreview };
     try { sessionStorage.setItem("ridemate-create-work", JSON.stringify({ purpose, mode, tripType, candidates, draft, manualPreview })); }
     catch { /* The course remains available in memory for this screen. */ }
   }, [purpose, mode, tripType, candidates, draft, manualPreview, manualDone]);
@@ -2014,7 +2179,7 @@ function CreateRide({
     <section className="page create-page">
       {manualPreview && <ManualRouteReview plan={manualPreview.plan} via={manualPreview.via} busy={loading} error={error} onEdit={() => { setManualPreview(null); setError(""); }} onApprove={() => void approveManual()} />}
       <button type="button" className="back create-back" onClick={onBack}>← 홈으로</button>
-      <h1>{solo ? "혼자 라이딩 계획" : "라이딩 만들기"}</h1>
+      <h1 style={{ fontSize: 'clamp(28px, 6vw, 38px)' }}>{solo ? "혼자 라이딩 계획" : "라이딩 만들기"}</h1>
       {!auth?.currentUser && (
         <aside className="auth-required" role="status">
           <div>
@@ -2029,20 +2194,14 @@ function CreateRide({
       <div className="purpose-tabs" role="group" aria-label="라이딩 목적">
         <button
           className={!solo ? "active" : ""}
-          onClick={() => {
-            setPurpose("group");
-            setCandidates([]);
-          }}
+          onClick={() => setPurpose("group")}
         >
           <Users />
           <b>함께 라이딩</b>
         </button>
         <button
           className={solo ? "active" : ""}
-          onClick={() => {
-            setPurpose("solo");
-            setCandidates([]);
-          }}
+          onClick={() => setPurpose("solo")}
         >
           <CircleUserRound />
           <b>혼자 라이딩</b>
@@ -2175,13 +2334,12 @@ function CreateRide({
             <label>
               정차 횟수
               <input
-                name="restCount"
-                required
-                type="number"
-                min="0"
-                max="20"
-                defaultValue="1"
-              />
+              name="restCount"
+              required
+              type="number"
+              min="0"
+              defaultValue="1"
+            />
             </label>
           </div>
           <CommonRideFields solo={solo} />
@@ -2201,64 +2359,6 @@ function CreateRide({
   );
 }
 
-const legalCopy = {
-  terms: {
-    title: "이용약관",
-    body: "라이드메이트는 라이딩 계획과 참여자 연결을 돕는 서비스입니다. 사용자는 교통법규와 안전수칙을 준수하고, 본인의 건강·장비 상태를 직접 확인해야 합니다. 타인을 사칭하거나 위험한 라이딩을 강요하고, 괴롭힘·노쇼·허위 신고를 하는 행위는 제한됩니다.",
-  },
-  privacy: {
-    title: "개인정보처리방침",
-    body: "계정 이메일, 닉네임, 라이딩 참여·노쇼 기록, 선택 입력한 비상연락처와 알림 설정을 서비스 제공·안전 운영 목적으로 처리합니다. 비상연락처와 세부 노쇼 기록은 공개 프로필에 노출하지 않습니다. 위치 공유는 사용자가 켠 경우에만 최대 15분 보관 후 만료되도록 설계하며, 탈퇴·삭제 요청은 운영자에게 접수할 수 있습니다.",
-  },
-  location: {
-    title: "위치기반서비스 안내",
-    body: "출발지 검색, 코스 추천, 주변 편의시설과 라이딩 중 선택적 위치 공유에 위치정보를 사용합니다. 위치 공유는 참여자가 직접 시작·종료하며 참여 라이딩의 안전 확인 목적에 한정합니다. 실제 사업자 정보, 위치정보관리책임자와 신고 연락처는 정식 출시 전 운영자가 확정해야 합니다.",
-  },
-};
-
-function LegalSheet({
-  kind,
-  onClose,
-}: {
-  kind: keyof typeof legalCopy;
-  onClose: () => void;
-}) {
-  const copy = legalCopy[kind];
-  return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      <section
-        className="legal-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="legal-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button className="close-modal" aria-label="닫기" onClick={onClose}>
-          <X />
-        </button>
-        <h1 id="legal-title">{copy.title}</h1>
-        <p>{copy.body}</p>
-        <p className="legal-note">
-          시행 예정일: 정식 출시일 · 문의: cheonmyungjun0725@gmail.com
-        </p>
-      </section>
-    </div>
-  );
-}
-
-function LegalLinks() {
-  const [legal, setLegal] = useState<keyof typeof legalCopy | null>(null);
-  return (
-    <>
-      <div className="legal-links">
-        <button onClick={() => setLegal("terms")}>이용약관</button>
-        <button onClick={() => setLegal("privacy")}>개인정보처리방침</button>
-        <button onClick={() => setLegal("location")}>위치서비스 안내</button>
-      </div>
-      {legal && <LegalSheet kind={legal} onClose={() => setLegal(null)} />}
-    </>
-  );
-}
 
 function ProfileTools() {
   const [settings, setSettings] = useState<RiderSettings | null>(null);
@@ -2305,52 +2405,25 @@ function ProfileTools() {
           }
         }}
       >
-        <h2>안전 프로필</h2>
-        <label>
-          닉네임
-          <input
-            name="displayName"
-            minLength={2}
-            maxLength={20}
-            defaultValue={settings.displayName}
-            placeholder="다른 라이더에게 보일 이름"
-          />
-        </label>
-        <div className="verification-row">
-          <ShieldCheck />
-          <div>
-            <b>본인·휴대폰 인증</b>
-            <small>
-              {settings.identityStatus === "verified"
-                ? "인증 완료"
-                : "외부 본인인증 사업자 연동 전 · 미인증"}
-            </small>
+        <section className="profile-section">
+          <div className="profile-section-head"><span>01</span><div><h2>기본 정보</h2><small>다른 라이더에게 보이는 정보예요.</small></div></div>
+          <label>닉네임<input name="displayName" minLength={2} maxLength={20} defaultValue={settings.displayName} placeholder="다른 라이더에게 보일 이름" /></label>
+          <div className="verification-row">
+            <ShieldCheck />
+            <div><b>본인·휴대폰 인증</b><small>{settings.identityStatus === "verified" ? "인증이 완료되었습니다." : "본인인증 기능을 준비하고 있습니다."}</small></div>
+            <span>{settings.identityStatus === "verified" ? "완료" : "준비 중"}</span>
           </div>
-          <span>
-            {settings.identityStatus === "verified" ? "완료" : "준비 중"}
-          </span>
-        </div>
-        <div className="two">
-          <label>
-            비상 연락 대상
-            <input
-              name="emergencyName"
-              defaultValue={settings.safety.emergencyName}
-              placeholder="예: 가족"
-            />
-          </label>
-          <label>
-            비상 연락처
-            <input
-              name="emergencyPhone"
-              inputMode="tel"
-              defaultValue={settings.safety.emergencyPhone}
-              placeholder="01012345678"
-            />
-          </label>
-        </div>
-        <h2 id="notification-settings" tabIndex={-1}>알림 설정</h2>
-        <label className="switch-row">
+        </section>
+        <section className="profile-section">
+          <div className="profile-section-head"><span>02</span><div><h2>비상 연락처</h2><small>긴급 상황을 대비해 본인만 관리합니다.</small></div></div>
+          <div className="two">
+            <label>연락 대상<input name="emergencyName" defaultValue={settings.safety.emergencyName} placeholder="예: 가족" /></label>
+            <label>전화번호<input name="emergencyPhone" inputMode="tel" autoComplete="tel" defaultValue={settings.safety.emergencyPhone} placeholder="01012345678" /></label>
+          </div>
+        </section>
+        <section className="profile-section notification-section" id="notification-settings" tabIndex={-1}>
+          <div className="profile-section-head"><span>03</span><div><h2>알림</h2><small>받고 싶은 알림만 선택하세요.</small></div></div>
+          <label className="switch-row">
           <span><b>라이딩 일정·참여</b><small>출발 시간과 방 참여 상태를 알려드려요.</small></span>
           <input
             name="notifyRide"
@@ -2358,8 +2431,8 @@ function ProfileTools() {
             defaultChecked={settings.notifications.ride}
             aria-label="라이딩 일정과 참여 알림"
           />
-        </label>
-        <label className="switch-row">
+          </label>
+          <label className="switch-row">
           <span><b>참여자 채팅</b><small>참여 중인 방의 새 메시지를 알려드려요.</small></span>
           <input
             name="notifyChat"
@@ -2367,17 +2440,17 @@ function ProfileTools() {
             defaultChecked={settings.notifications.chat}
             aria-label="참여자 채팅 알림"
           />
-        </label>
-        <label className="switch-row">
-          <span><b>안전·노쇼 투표</b><small>안전 안내와 라이딩 종료 후 투표를 알려드려요.</small></span>
+          </label>
+          <label className="switch-row">
+          <span><b>안전·노쇼 투표</b><small>일행 이탈 안전 안내와 종료 후 투표를 알려드려요.</small></span>
           <input
             name="notifySafety"
             type="checkbox"
             defaultChecked={settings.notifications.safety}
             aria-label="안전과 노쇼 투표 알림"
           />
-        </label>
-        <button
+          </label>
+          <button
           type="button"
           className="secondary wide"
           onClick={async () => {
@@ -2392,15 +2465,14 @@ function ProfileTools() {
               );
             }
           }}
-        >
-          <Bell size={17} />이 기기 푸시 알림 켜기
-        </button>
+          ><Bell size={17} />이 기기에서 푸시 받기</button>
+        </section>
         {saved && (
           <p className="status-message" role="status">
             {saved}
           </p>
         )}
-        <button className="primary wide">안전 프로필·알림 저장</button>
+        <button className="primary wide profile-save">변경사항 저장</button>
       </form>
     </>
   );
@@ -2452,44 +2524,36 @@ function LoginPanel() {
     } finally {
       setBusy(false);
     }
-  };
-  const requestAdmin = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      await bootstrapAdmin();
-      await user?.getIdToken(true);
-      setIsAdmin(true);
-    } catch (reason) {
-      setMessage(
-        reason instanceof Error
-          ? reason.message
-          : "관리자 권한을 확인하지 못했습니다.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (user)
+  };  if (user)
     return (
       <section className="page profile">
-        <CircleUserRound size={66} />
-        <h1>라이더 프로필</h1>
-        <p className="sub">
-          <b>{user.email}</b>
-          <br />
-          로그인되어 있습니다.
-        </p>
+        <h1 className="sr-only">내 프로필</h1>
+        <div className="profile-account">
+          <div className="profile-account-main">
+            <span className="profile-avatar"><CircleUserRound aria-hidden="true" /></span>
+            <div><small>내 계정</small><b>{user.email}</b><span>{user.emailVerified ? "이메일 인증 완료" : "이메일 인증 필요"}</span></div>
+          </div>
+          {isAdmin && (
+            <button
+              className="admin-entry"
+              onClick={() => {
+                window.location.search = "?admin=1";
+              }}
+            >
+              <ShieldCheck size={17} aria-hidden="true" />
+              <span>관리자 페이지</span>
+              <ChevronRight size={16} className="admin-entry-arrow" aria-hidden="true" />
+            </button>
+          )}
+        </div>
         {!user.emailVerified && (
           <button
             className="primary wide"
             onClick={() =>
               sendEmailVerification(user)
-                .then(() =>
-                  setMessage(
-                    "인증 메일을 전송했습니다. 메일 인증 후 다시 로그인해 주세요.",
-                  ),
-                )
+                .then(() => {
+                  toast("인증 메일을 전송했습니다. 메일 인증 후 다시 로그인해 주세요.", "info");
+                })
                 .catch((error) =>
                   setMessage(
                     error instanceof Error
@@ -2502,40 +2566,12 @@ function LoginPanel() {
             이메일 인증 보내기
           </button>
         )}
-        {isAdmin ? (
-          <button
-            className="admin-entry wide"
-            onClick={() => {
-              window.location.search = "?admin=1";
-            }}
-          >
-            <ShieldCheck size={18} />
-            관리자 페이지
-          </button>
-        ) : (
-          <button
-            className="secondary wide"
-            disabled={busy}
-            onClick={requestAdmin}
-          >
-            관리자 권한 확인
-          </button>
-        )}
         {message && <p className="form-error">{message}</p>}
         <ProfileTools />
-        <button
-          className="secondary wide"
-          onClick={() => auth && signOut(auth)}
-        >
-          로그아웃
-        </button>
-        <article className="notice">
-          <b>노쇼 정책</b>
-          <p>
-            라이딩 종료 후 참여자 투표에서 최소 3표·과반으로 확정된 경우에만
-            기록됩니다.
-          </p>
-        </article>
+        <div className="profile-bottom">
+          <Disclosure title="노쇼 기록 기준">라이딩 종료 후 최소 3표와 유효표 과반이 충족된 경우에만 기록됩니다.</Disclosure>
+          <button className="text-button profile-logout" onClick={() => auth && signOut(auth)}>로그아웃</button>
+        </div>
       </section>
     );
   return (
@@ -2628,13 +2664,6 @@ function LoginPanel() {
         catch { setMessage("안내 메일 요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
         finally { setBusy(false); }
       }}>비밀번호를 잊으셨나요?</button>}
-      <article className="notice">
-        <b>카카오 로그인</b>
-        <p>
-          카카오 계정 연결은 OAuth 보안 설정 후 제공됩니다. 현재는 이메일
-          로그인을 이용해 주세요.
-        </p>
-      </article>
     </section>
   );
 }
@@ -2694,24 +2723,16 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
   return (
     <section className="page detail saved-detail">
       <button className="back" onClick={onBack}>← 내 라이딩으로</button>
-      {routeRecovery === "loading" ? (
-        <div className="map live-map"><div className="map-state" role="status"><b>출발·도착지로 자전거 경로 복구 중…</b></div></div>
-      ) : (
-        <CourseMap
-          routes={mapRoutes}
-          label={`${plan.title} 저장 코스`}
-          stops={filteredStops}
-          climbSegments={plan.course.climbSegments ?? []}
-          missingRouteMessage={routeMessage}
-        />
-      )}
-      {stops.length > 0 && <FacilityFilter stops={stops} value={facilityFilter} onChange={setFacilityFilter} />}
+      <div className="map-facilities-layout">
+        {routeRecovery === "loading" ? <div className="map live-map"><div className="map-state" role="status"><b>출발·도착지로 자전거 경로 복구 중…</b></div></div> : <CourseMap routes={mapRoutes} label={`${plan.title} 저장 코스`} stops={filteredStops} climbSegments={plan.course.climbSegments ?? []} missingRouteMessage={routeMessage} showFacilityNames={facilityFilter !== "전체"} />}
+        <aside className="map-facilities"><b>코스 주변 시설</b>{stops.length > 0 && <FacilityFilter stops={stops} value={facilityFilter} onChange={setFacilityFilter} />}{poiError && <div role="alert"><p>{poiError}</p><button className="secondary" onClick={() => setPoiRetry(value => value + 1)}>다시 불러오기</button></div>}<FacilityList stops={filteredStops} loading={loadingPois} compact /></aside>
+      </div>
       <div className="detail-head">
         <div><span className="eyebrow">{status}</span><h1>{plan.title}</h1><p>{plan.startsAt ? fmt(plan.startsAt) : "날짜·시간 미정"}</p></div>
         {status === "진행중" ? (
-          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);setActionError("");try{await finishPublicRide(plan.id);setStatus("완료")}catch(e){setActionError(e instanceof Error ? e.message : "라이딩 종료 처리를 완료하지 못했습니다.")}finally{setBusy(false)}}}>라이딩 종료</button>
+          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);setActionError("");try{await finishPublicRide(plan.id);setStatus("완료");toast("라이딩을 종료했습니다.")}catch(e){setActionError(e instanceof Error ? e.message : "라이딩 종료 처리를 완료하지 못했습니다.")}finally{setBusy(false)}}}>라이딩 종료</button>
         ) : ["계획","모집중","마감"].includes(status) ? (
-          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);setActionError("");try{await startPublicRide(plan.id);setStatus("진행중")}catch(e){setActionError(e instanceof Error ? e.message : "라이딩 시작 처리를 완료하지 못했습니다.")}finally{setBusy(false)}}}>라이딩 시작</button>
+          <button className="primary" disabled={busy} onClick={async()=>{setBusy(true);setActionError("");try{await startPublicRide(plan.id);setStatus("진행중");toast("라이딩을 시작했습니다. 경로와 안전 정보를 확인하세요.")}catch(e){setActionError(e instanceof Error ? e.message : "라이딩 시작 처리를 완료하지 못했습니다.")}finally{setBusy(false)}}}>라이딩 시작</button>
         ) : null}
       </div>
       {actionError && <p className="form-error" role="alert">{actionError}</p>}
@@ -2725,11 +2746,6 @@ function SavedRideDetail({ plan, onBack }: { plan: SavedPlan; onBack: () => void
       {(plan.course.climbSegments?.length ?? 0) > 0 && (
         <article className="info climb-list"><h2><Mountain /> 업힐 구간</h2>{(plan.course.climbSegments ?? []).map((segment, index) => <p key={segment.id}><b>{index + 1}번째 업힐</b><span>{segment.startKm}–{segment.endKm}km · +{segment.gainM}m · 평균 {segment.avgGradient}%</span></p>)}</article>
       )}
-      <article className="info">
-        <h2>코스 주변 편의시설</h2>
-        {poiError && <div role="alert"><p>{poiError}</p><button className="secondary" onClick={() => setPoiRetry(value => value + 1)}>편의시설 다시 불러오기</button></div>}
-        <FacilityList stops={filteredStops} loading={loadingPois} />
-      </article>
       {plan.description && <article className="info"><h2>라이딩 메모</h2><p>{plan.description}</p></article>}
     </section>
   );
@@ -2860,10 +2876,11 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
   const visiblePlans = selectedDate ? plans.filter(plan => localDateKey(plan.startsAt) === selectedDate) : plans;
   return (
     <section className="page">
-      <div className="my-rides-head"><h1>내 라이딩</h1><button className="secondary" disabled={loading} onClick={() => setRevision(value => value + 1)}>{loading ? "불러오는 중…" : "새로고침"}</button></div>
-      <RideCalendar plans={plans} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-      <div className="section-title"><div><h2>{selectedDate ? `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정` : "전체 일정"}</h2><small>{visiblePlans.length}개</small></div>{selectedDate && <button onClick={() => setSelectedDate("")}>전체 보기</button>}</div>
-      <div className="list">
+      <div className="my-rides-head"><h1>내 라이딩</h1><button className="secondary" disabled={loading} onClick={() => setRevision(value => value + 1)} aria-label="새로고침"><RefreshCw size={16} className={loading ? "spin" : ""} /></button></div>
+      <div className="my-rides-dashboard">
+        <RideCalendar plans={plans} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+        <div className="my-rides-list-panel"><div className="section-title"><div><h2>{selectedDate ? `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정` : "전체 일정"}</h2><small>{visiblePlans.length}개</small></div>{selectedDate && <button onClick={() => setSelectedDate("")}>전체 보기</button>}</div>
+        <div className="list">
         {loading && <div className="skeleton-card" aria-label="내 라이딩 불러오는 중" />}
         {loadError && <p className="form-error" role="alert">{loadError}</p>}
         {visiblePlans.map((plan) => (
@@ -2923,6 +2940,8 @@ function MyRides({ onLogin, onCreate }: { onLogin: () => void; onCreate: () => v
             {!selectedDate && <button className="secondary wide" onClick={onCreate}><Plus size={16} aria-hidden="true" /> 첫 라이딩 만들기</button>}
           </div>
         )}
+        </div>
+        </div>
       </div>
     </section>
   );
@@ -2967,7 +2986,22 @@ export default function App() {
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedError, setFeedError] = useState("");
   const [feedVersion, setFeedVersion] = useState(0);
-  const [maxDistance, setMaxDistance] = useState(200);
+  useEffect(() => {
+    const refresh = () => setFeedVersion((value) => value + 1);
+    const unsubscribe = auth ? onAuthStateChanged(auth, () => {
+      setRides([]);
+      try { localStorage.removeItem("ridemate-public-feed"); } catch { /* 저장소 제한 */ }
+      refresh();
+    }) : undefined;
+    window.addEventListener("online", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+  const [maxDistance, setMaxDistance] = useState(Infinity);
   const [maxPace, setMaxPace] = useState(60);
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [withinWeek, setWithinWeek] = useState(false);
@@ -2985,25 +3019,28 @@ export default function App() {
   useEffect(() => {
     setFeedLoading(true);
     setFeedError("");
+    let active = true;
     try {
       const cached = JSON.parse(
         localStorage.getItem("ridemate-public-feed") ?? "[]",
       ) as Ride[];
-      if (cached.length) setRides(cached);
+      if (Array.isArray(cached) && cached.length) setRides(cached.filter((ride) => ride?.course && ride?.host));
     } catch {
       /* 손상된 공개 캐시는 무시 */
     }
     void listPublicRides()
       .then((next) => {
+        if (!active) return;
         setRides(next);
-        localStorage.setItem(
+        try { localStorage.setItem(
           "ridemate-public-feed",
           JSON.stringify(next.slice(0, 40)),
-        );
+        ); } catch { /* 캐시 저장 실패와 목록 조회 실패를 구분합니다. */ }
       })
-      .catch(() => setFeedError("새 목록을 불러오지 못해 저장된 최근 라이딩을 표시합니다."))
-      .finally(() => setFeedLoading(false));
+      .catch(() => { if (active) setFeedError("새 목록을 불러오지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요."); })
+      .finally(() => { if (active) setFeedLoading(false); });
     void trackProductEvent("app_open").catch(() => undefined);
+    return () => { active = false; };
   }, [feedVersion]);
   useEffect(() => {
     const rideId = new URLSearchParams(window.location.search).get("ride");
@@ -3028,10 +3065,10 @@ export default function App() {
     }),
     [rides, debouncedQuery, maxDistance, maxPace, onlyAvailable, withinWeek],
   );
-  const hasActiveFilters = Boolean(query || maxDistance < 200 || maxPace < 60 || onlyAvailable || withinWeek);
+  const hasActiveFilters = Boolean(query || Number.isFinite(maxDistance) || maxPace < 60 || onlyAvailable || withinWeek);
   const resetFilters = () => {
     setQuery("");
-    setMaxDistance(200);
+    setMaxDistance(Infinity);
     setMaxPace(60);
     setOnlyAvailable(false);
     setWithinWeek(false);
@@ -3039,7 +3076,7 @@ export default function App() {
   const prevTab = useRef(tab);
   useEffect(() => {
     if (prevTab.current !== tab || selected) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "auto" });
       const mainContent = document.getElementById("main-content");
       if (mainContent) mainContent.focus({ preventScroll: true });
     }
@@ -3098,6 +3135,7 @@ export default function App() {
           <br />
           라이딩을 찾아보세요
         </h1>
+        <button className="hero-action" onClick={() => setTab("create")}><Plus size={19} aria-hidden="true" />새 라이딩 만들기</button>
       </div>
       <section className="home-search-panel" aria-labelledby="ride-search-title">
       <h2 id="ride-search-title">라이딩 찾기</h2>
@@ -3117,7 +3155,7 @@ export default function App() {
       </div>
       <div className="filter-bar" role="group" aria-label="라이딩 필터">
         <div className="filter-field"><span>최대 거리</span>
-          <SelectMenu label="최대 거리" value={String(maxDistance)} onChange={value => setMaxDistance(Number(value))} options={[{value:"30",label:"30km"},{value:"60",label:"60km"},{value:"100",label:"100km"},{value:"200",label:"전체"}]} />
+          <SelectMenu label="최대 거리" value={String(maxDistance)} onChange={value => setMaxDistance(Number(value))} options={[{value:"30",label:"30km"},{value:"60",label:"60km"},{value:"100",label:"100km"},{value:"Infinity",label:"전체"}]} />
         </div>
         <div className="filter-field"><span>최대 평속</span>
           <SelectMenu label="최대 평속" value={String(maxPace)} onChange={value => setMaxPace(Number(value))} options={[{value:"20",label:"20km/h"},{value:"25",label:"25km/h"},{value:"30",label:"30km/h"},{value:"60",label:"전체"}]} />
@@ -3146,7 +3184,7 @@ export default function App() {
           <h2>{hasActiveFilters ? "검색 결과" : "지금 모집 중인 라이딩"}</h2>
           {!feedLoading && <small>{filtered.length}개의 라이딩</small>}
         </div>
-        <button onClick={() => setFeedVersion((value) => value + 1)}>새로고침</button>
+        <button onClick={() => setFeedVersion((value) => value + 1)} aria-label="새로고침"><RefreshCw size={16} /></button>
       </div>
       <div className="list">
         {feedLoading && (
@@ -3181,13 +3219,12 @@ export default function App() {
         ))}
         {!feedLoading && !filtered.length && (
           <div className="empty" role="status">
-            <p>조건에 맞는 라이딩이 없습니다.</p>
-            <div className="empty-actions">
-              {hasActiveFilters && <button className="secondary" onClick={resetFilters}>검색 조건 초기화</button>}
-              <button className="primary" onClick={() => setTab("create")}>
-                <Plus size={16} aria-hidden="true" /> 새 라이딩 만들기
-              </button>
-            </div>
+            <p>{hasActiveFilters ? "조건에 맞는 라이딩이 없습니다." : "아직 모집 중인 라이딩이 없습니다."}</p>
+            {hasActiveFilters && (
+              <div className="empty-actions">
+                <button className="secondary" onClick={resetFilters}>검색 조건 초기화</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -3203,8 +3240,9 @@ export default function App() {
             setSelected(null);
           }}
           className="logo"
+          aria-label="RIDEMATE 홈으로"
         >
-          RIDEMATE<span>라이딩 메이트</span>
+          RIDEMATE
         </button>
         <div className="header-actions">
           <button
@@ -3242,8 +3280,8 @@ export default function App() {
       {installPrompt && (
         <aside className="install-banner" role="complementary" aria-label="앱 설치 안내">
           <div>
-            <b>홈 화면에 라이드메이트 설치</b>
-            <small>더 빠르게 열고 최근 코스를 오프라인에서도 확인하세요.</small>
+            <b>Add RIDEMATE to Home Screen</b>
+            <small>Launch faster and view recent routes offline.</small>
           </div>
           <button
             className="primary"
@@ -3267,9 +3305,6 @@ export default function App() {
       <div id="main-content" tabIndex={-1}>
         {content}
       </div>
-      <footer className="app-footer">
-        <LegalLinks />
-      </footer>
       {!selected && (
         <nav role="navigation" aria-label="메인 메뉴">
           {(

@@ -44,7 +44,7 @@ export function filterPublicRides(
         .includes(normalized) &&
       ride.course.distanceKm <= maxDistance &&
       ride.paceKmh <= maxPace &&
-      (!options.onlyAvailable || (ride.status === "모집중" && memberCount < ride.capacity)) &&
+      (!options.onlyAvailable || (ride.status === "모집중" && memberCount < ride.capacity && startsAt > now.getTime())) &&
       (!options.upcomingOnly || startsAt >= now.getTime()) &&
       (!options.recentHours || startsAt >= earliest) &&
       (!options.withinDays || (startsAt >= now.getTime() && startsAt <= deadline));

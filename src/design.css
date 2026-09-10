@@ -734,6 +734,23 @@ button:disabled { cursor:not-allowed; opacity:.52; transform:none!important; box
 .purpose-tabs button svg,.mode-cards button svg { display:block; flex:0 0 auto; }
 .purpose-tabs button.active,.mode-cards button.active,.candidate-card.selected { border-color:var(--rm-accent); background:var(--rm-selected); color:var(--rm-accent-strong); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--rm-accent) 20%,transparent); }
 
+/* Create choice rows share identical geometry, so category changes never shift. */
+.create-page>.purpose-tabs,.create-page>.mode-cards {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  width:100%;
+  margin-inline:0;
+}
+.create-page .purpose-tabs button,.create-page .mode-cards button {
+  width:100%;
+  min-width:0;
+  height:54px;
+  min-height:54px;
+  padding:0 14px;
+  justify-content:flex-start;
+}
+
 .create-page>form { gap:20px; padding:24px; border-color:var(--rm-line); border-radius:20px; background:var(--rm-surface); box-shadow:var(--rm-shadow-sm); }
 .create-page>form .route-method { padding-bottom:20px; }
 .auth-required,.date-time-fields,.notice.route-method,.manual-guide,.recommendation-basis,.recommendation-preview { border-color:var(--rm-line); border-radius:14px; background:var(--rm-soft); }
@@ -757,7 +774,8 @@ button:disabled { cursor:not-allowed; opacity:.52; transform:none!important; box
   header { background:color-mix(in srgb,var(--rm-surface) 90%,transparent); backdrop-filter:blur(18px) saturate(130%); }
   .page { padding:32px; }
   .home-page { gap:22px 28px; }
-  .home-page>.hero,.home-page>.home-search-panel { min-height:278px; }
+  .home-page>.hero { min-height:318px; }
+  .home-page>.home-search-panel { align-self:end; min-height:0; }
   .home-page>.hero { padding:38px 40px; }
   .home-page>.home-search-panel { padding:26px; }
   nav button { min-height:44px; border-radius:12px; font-weight:700; }
@@ -768,6 +786,7 @@ button:disabled { cursor:not-allowed; opacity:.52; transform:none!important; box
   nav { border-top-color:var(--rm-line); background:color-mix(in srgb,var(--rm-surface) 94%,transparent); backdrop-filter:blur(18px) saturate(130%); }
   nav button { min-height:52px; border-radius:13px; font-size:12px; font-weight:720; }
   nav button.current,nav button.create-nav.current { background:var(--rm-selected); color:var(--rm-accent-strong); }
+  .home-page>.home-search-panel { margin-top:10px; }
 }
 
 @media (max-width:620px) {

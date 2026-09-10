@@ -33,6 +33,8 @@ RideMate is a Korean mobile-first cycling utility. It should feel calm, dependab
 - Mobile (< 680px): single-column content, bottom navigation, 16px page gutter, borderless create form shell.
 - Tablet (680–899px): full-width content with 24px gutter and two-column repeatable cards where useful.
 - Desktop (>= 900px): top navigation and a maximum 1240px content column; creation uses a stable left choice rail and right form.
+- On Home, the ride-search surface starts below the hero's visual lead; on desktop its lower edge aligns with the hero instead of competing at the same top edge.
+- In Create, purpose and route-method controls share one two-column grid, gap, height, and horizontal alignment.
 
 ## Interaction contract
 
@@ -41,4 +43,3 @@ RideMate is a Korean mobile-first cycling utility. It should feel calm, dependab
 - Selection is shown with background, border, and text/icon changes—not color alone.
 - Feedback uses the shared toast system plus field-level validation where correction is required.
 - Motion is short and optional; `prefers-reduced-motion` disables decorative transitions.
-

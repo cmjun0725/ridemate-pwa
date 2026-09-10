@@ -174,7 +174,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
       ) : view === "users" ? (
         <section className="admin-section">
           <h2>회원 관리</h2>
-          <form className="admin-user-search" onSubmit={async event => {
+          <form noValidate className="admin-user-search" onSubmit={async event => {
             event.preventDefault(); setError(""); setSearching(true); setFoundUser(null);
             try { setFoundUser(await adminFindUser(searchEmail)); }
             catch (reasonValue) { setError(reasonValue instanceof Error ? reasonValue.message : "회원을 찾지 못했습니다."); }
@@ -325,6 +325,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
       {pending && (
         <div className="modal-backdrop">
           <form
+            noValidate
             className="admin-action-modal"
             role="dialog"
             aria-modal="true"
@@ -339,6 +340,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
             <label>
               처리 사유
               <textarea
+                className="resize-none"
                 autoFocus
                 required
                 value={reason}

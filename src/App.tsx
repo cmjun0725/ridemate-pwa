@@ -1197,6 +1197,7 @@ function RideDetail({
       </div>
       {reportOpen && targetId && (
         <form
+          noValidate
           className="inline-panel"
           onSubmit={async (event) => {
             event.preventDefault();
@@ -1239,7 +1240,7 @@ function RideDetail({
           </label>
           <label>
             상세 내용
-            <textarea name="details" maxLength={1000} placeholder="상세 내용을 입력해 주세요" />
+            <textarea className="resize-none" name="details" maxLength={1000} placeholder="상세 내용을 입력해 주세요" />
           </label>
           <div className="inline-actions">
             <button
@@ -1414,6 +1415,7 @@ function RideDetail({
               <Star aria-hidden="true" /> 라이딩 후기
             </h2>
             <form
+              noValidate
               onSubmit={async (event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
@@ -1461,7 +1463,7 @@ function RideDetail({
               </label>
               <label>
                 한줄 후기
-                <textarea name="comment" maxLength={500} />
+                <textarea className="resize-none" name="comment" maxLength={500} />
               </label>
               <button className="primary">후기 등록</button>
             </form>
@@ -1506,7 +1508,7 @@ function RideDetail({
             <div ref={chatEndRef} aria-hidden="true" />
           </div>
           {chatError && <p className="form-error" role="status">{chatError}</p>}
-          <form className="chat-input-bar" onSubmit={submitChat}>
+          <form noValidate className="chat-input-bar" onSubmit={submitChat}>
             <input
               aria-label="메시지"
               value={chatText}
@@ -1641,6 +1643,7 @@ function CommonRideFields({ solo }: { solo: boolean }) {
       <label>
         부가 설명 <span className="optional">(선택)</span>
         <textarea
+          className="resize-none"
           name="description"
           rows={3}
           placeholder={
@@ -1822,7 +1825,7 @@ function CandidateResults({
           </button>
         ))}
       </div>
-      <form ref={formRef} className="candidate-fields" onSubmit={(e) => { e.preventDefault(); void storeFromForm(); }}>
+      <form noValidate ref={formRef} className="candidate-fields" onSubmit={(e) => { e.preventDefault(); void storeFromForm(); }}>
         <RideDateTimeFields optional={solo} />
         <div className="two">
           <label>
@@ -1851,7 +1854,7 @@ function CandidateResults({
         )}
         <label>
           부가 설명 <span className="optional">(선택)</span>
-          <textarea name="description" rows={2} placeholder={solo ? "준비물, 보급 계획 등" : "준비물, 라이딩 성격, 주의사항 등"} />
+          <textarea className="resize-none" name="description" rows={2} placeholder={solo ? "준비물, 보급 계획 등" : "준비물, 라이딩 성격, 주의사항 등"} />
         </label>
       </form>
       {saveError && <p className="form-error" role="alert">{saveError}</p>}
@@ -1935,7 +1938,7 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
   return (
     <section className="page course-explorer">
       <h1>주변 자전거 코스 찾기</h1>
-      <form onSubmit={async (event) => {
+      <form noValidate onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const startName = String(form.get("exploreStart") ?? "");
@@ -2238,7 +2241,7 @@ function CreateRide({
           solo={solo}
         />
       ) : mode === "guided" ? (
-        <form onSubmit={submitGuided}>
+        <form noValidate onSubmit={submitGuided}>
           <PlacePicker name="startName" label="출발 지점" placeholder="역·공원·정확한 장소명 검색" />
           <div className="two distance-row">
             <label>
@@ -2303,7 +2306,7 @@ function CreateRide({
           </button>
         </form>
       ) : (
-        <form onSubmit={submitManual}>
+        <form noValidate onSubmit={submitManual}>
           <label>
             라이딩 제목
             <input
@@ -2381,6 +2384,7 @@ function ProfileTools() {
   return (
     <>
       <form
+        noValidate
         className="profile-tools"
         onSubmit={async (event) => {
           event.preventDefault();
@@ -2579,7 +2583,7 @@ function LoginPanel() {
       <CircleUserRound size={58} />
       <h1>{mode === "login" ? "로그인" : "이메일 회원가입"}</h1>
       <p className="sub">라이딩 참여와 계획 저장을 위해 로그인해 주세요.</p>
-      <form onSubmit={submit}>
+      <form noValidate onSubmit={submit}>
         <label>
           이메일
           <input

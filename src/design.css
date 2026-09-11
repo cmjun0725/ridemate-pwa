@@ -1295,3 +1295,89 @@ nav button.current,nav button.create-nav.current { background:#dff2e9; color:#07
   }
   .home-page>.section-title { margin-top:62px; }
 }
+
+/* === Create workspace: stable choices on the left, focused form on the right === */
+.create-page { display:block; }
+.create-page-head,.create-workspace { width:min(100%,1220px); margin-inline:auto; }
+.create-page-head { display:grid; gap:12px; margin-bottom:24px; }
+.create-page-head h1 { margin:0; font-size:clamp(30px,4vw,42px); letter-spacing:-1.5px; }
+.create-page-head .create-back { justify-self:start; margin:0; }
+.create-workspace { display:grid; grid-template-columns:minmax(0,360px) minmax(0,1fr); gap:32px; align-items:start; }
+
+.create-choice-panel {
+  position:sticky;
+  top:100px;
+  display:grid;
+  gap:24px;
+  padding:24px;
+  border:1px solid #255144;
+  border-radius:24px;
+  background:#0a2f25;
+  box-shadow:0 20px 48px #143c2e1a;
+}
+.create-choice-group { display:grid; gap:12px; }
+.create-choice-group+ .create-choice-group { padding-top:22px; border-top:1px solid #ffffff1f; }
+.create-choice-group h2 { display:flex; align-items:center; gap:9px; margin:0; color:#f4fbf8; font-size:15px; font-weight:800; letter-spacing:-.35px; }
+.create-choice-group h2>span { display:grid; place-items:center; width:24px; height:24px; border-radius:50%; background:#a9ecd2; color:#073b2d; font-size:12px; }
+.create-choice-panel .purpose-tabs,.create-choice-panel .mode-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; width:100%; margin:0; }
+.create-choice-panel .purpose-tabs button,.create-choice-panel .mode-cards button {
+  width:100%;
+  height:64px;
+  min-height:64px;
+  min-width:0;
+  justify-content:flex-start;
+  gap:8px;
+  padding:0 13px;
+  border:1px solid #ffffff24;
+  border-radius:15px;
+  background:#ffffff0b;
+  color:#e7f5ef;
+  box-shadow:none;
+  font-size:13px;
+}
+.create-choice-panel .purpose-tabs button:hover,.create-choice-panel .mode-cards button:hover { border-color:#9fe6cc; background:#ffffff16; color:#ffffff; }
+.create-choice-panel .purpose-tabs button.active,.create-choice-panel .mode-cards button.active {
+  border-color:#c8f3e2;
+  background:#ecf8f3;
+  color:#075c46;
+  box-shadow:0 8px 22px #001a1229;
+}
+.create-choice-panel .purpose-tabs button svg,.create-choice-panel .mode-cards button svg,
+.create-choice-panel .purpose-tabs button.active svg,.create-choice-panel .mode-cards button.active svg { width:19px; color:currentColor; }
+.create-choice-panel .purpose-tabs button b,.create-choice-panel .mode-cards button b { font-size:13px; line-height:1.25; }
+
+.create-stage { display:grid; gap:16px; min-width:0; }
+.create-stage>.auth-required { width:100%; max-width:none; min-height:62px; margin:0; padding:10px 12px 10px 18px; border-radius:16px; }
+.create-stage>.auth-required span { display:block; margin-top:2px; }
+.create-stage>form {
+  display:grid;
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:32px;
+  gap:22px;
+  border:1px solid var(--rm-line);
+  border-radius:24px;
+  background:#ffffff;
+  box-shadow:0 18px 46px #173b2e12;
+}
+.create-stage>form>.primary:last-child { min-height:56px; margin-top:4px; border-radius:15px; font-size:15px; }
+.create-stage>.candidate-results { width:100%; min-width:0; }
+
+@media (max-width:899px) {
+  .create-page-head { gap:8px; margin-bottom:18px; }
+  .create-page-head h1 { font-size:32px; }
+  .create-workspace { grid-template-columns:1fr; gap:16px; }
+  .create-choice-panel { position:static; gap:18px; padding:18px; border-radius:20px; }
+  .create-choice-group+ .create-choice-group { padding-top:17px; }
+  .create-choice-panel .purpose-tabs button,.create-choice-panel .mode-cards button { height:58px; min-height:58px; padding-inline:12px; }
+  .create-stage>form { padding:22px; border-radius:20px; }
+}
+
+@media (max-width:620px) {
+  .create-page-head h1 { font-size:30px; }
+  .create-choice-panel { margin-inline:-2px; padding:16px; }
+  .create-choice-panel .purpose-tabs,.create-choice-panel .mode-cards { gap:8px; }
+  .create-choice-panel .purpose-tabs button,.create-choice-panel .mode-cards button { height:56px; min-height:56px; font-size:12px; }
+  .create-stage>form { padding:18px 0 0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+}

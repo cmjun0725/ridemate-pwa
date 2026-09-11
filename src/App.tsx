@@ -2182,58 +2182,70 @@ function CreateRide({
   return (
     <section className="page create-page">
       {manualPreview && <ManualRouteReview plan={manualPreview.plan} via={manualPreview.via} busy={loading} error={error} onEdit={() => { setManualPreview(null); setError(""); }} onApprove={() => void approveManual()} />}
-      <button type="button" className="back create-back" onClick={onBack}>← 홈으로</button>
-      <h1 style={{ fontSize: 'clamp(28px, 6vw, 38px)' }}>{solo ? "혼자 라이딩 계획" : "라이딩 만들기"}</h1>
-      {!auth?.currentUser && (
-        <aside className="auth-required" role="status">
-          <div>
-            <b>저장하려면 로그인이 필요해요</b>
-            <span>먼저 로그인하면 입력 도중 막히지 않습니다.</span>
-          </div>
-          <button type="button" className="secondary" onClick={onLogin}>
-            로그인
-          </button>
+      <div className="create-page-head">
+        <button type="button" className="back create-back" onClick={onBack}>← 홈으로</button>
+        <h1>{solo ? "혼자 라이딩 계획" : "라이딩 만들기"}</h1>
+      </div>
+      <div className="create-workspace">
+        <aside className="create-choice-panel" aria-label="라이딩 만들기 방식">
+          <section className="create-choice-group">
+            <h2><span aria-hidden="true">1</span> 라이딩 방식</h2>
+            <div className="purpose-tabs" role="group" aria-label="라이딩 목적">
+              <button
+                className={!solo ? "active" : ""}
+                onClick={() => setPurpose("group")}
+              >
+                <Users />
+                <b>함께 라이딩</b>
+              </button>
+              <button
+                className={solo ? "active" : ""}
+                onClick={() => setPurpose("solo")}
+              >
+                <CircleUserRound />
+                <b>혼자 라이딩</b>
+              </button>
+            </div>
+          </section>
+          <section className="create-choice-group">
+            <h2><span aria-hidden="true">2</span> 코스 설정</h2>
+            <div className="mode-cards">
+              <button
+                className={mode === "guided" ? "active" : ""}
+                onClick={() => {
+                  setMode("guided");
+                  setCandidates([]);
+                }}
+              >
+                <Route />
+                <b>조건으로 찾기</b>
+              </button>
+              <button
+                className={mode === "manual" ? "active" : ""}
+                onClick={() => {
+                  setMode("manual");
+                  setCandidates([]);
+                }}
+              >
+                <MapPin />
+                <b>직접 입력</b>
+              </button>
+            </div>
+          </section>
         </aside>
-      )}
-      <div className="purpose-tabs" role="group" aria-label="라이딩 목적">
-        <button
-          className={!solo ? "active" : ""}
-          onClick={() => setPurpose("group")}
-        >
-          <Users />
-          <b>함께 라이딩</b>
-        </button>
-        <button
-          className={solo ? "active" : ""}
-          onClick={() => setPurpose("solo")}
-        >
-          <CircleUserRound />
-          <b>혼자 라이딩</b>
-        </button>
-      </div>
-      <div className="mode-cards">
-        <button
-          className={mode === "guided" ? "active" : ""}
-          onClick={() => {
-            setMode("guided");
-            setCandidates([]);
-          }}
-        >
-          <Route />
-          <b>조건으로 코스 찾기</b>
-        </button>
-        <button
-          className={mode === "manual" ? "active" : ""}
-          onClick={() => {
-            setMode("manual");
-            setCandidates([]);
-          }}
-        >
-          <MapPin />
-          <b>모두 직접 입력</b>
-        </button>
-      </div>
-      {mode === "guided" && candidates.length ? (
+        <div className="create-stage">
+          {!auth?.currentUser && (
+            <aside className="auth-required" role="status">
+              <div>
+                <b>저장하려면 로그인이 필요해요</b>
+                <span>지금 입력한 내용은 로그인 전까지 유지됩니다.</span>
+              </div>
+              <button type="button" className="secondary" onClick={onLogin}>
+                로그인
+              </button>
+            </aside>
+          )}
+          {mode === "guided" && candidates.length ? (
         <CandidateResults
           candidates={candidates}
           draft={draft}
@@ -2359,6 +2371,8 @@ function CreateRide({
           </button>
         </form>
       )}
+        </div>
+      </div>
     </section>
   );
 }

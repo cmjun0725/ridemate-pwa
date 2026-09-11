@@ -281,7 +281,11 @@ button:focus-visible, a:focus-visible { outline:2px solid var(--rm-accent); outl
 .calendar-days>button:active { transform:scale(.95); }
 .calendar-days>button.selected { border-color:var(--rm-accent); background:var(--rm-selected); color:var(--rm-accent); font-weight:800; }
 .calendar-days>button.today:not(.selected) { border-color:color-mix(in srgb,var(--rm-accent) 42%,transparent); font-weight:800; }
-.calendar-days>button b { position:absolute; right:3px; bottom:3px; display:grid; place-items:center; min-width:17px; height:17px; padding:0 4px; border-radius:8px; background:var(--rm-accent); color:var(--rm-on-accent); font-size:9px; }
+.calendar-days>button.has-events { border-color:color-mix(in srgb,var(--rm-accent) 32%,var(--rm-line)); background:color-mix(in srgb,var(--rm-selected) 72%,#fff); }
+.calendar-day-number { align-self:start; margin-top:7px; }
+.calendar-event-badge { position:absolute; left:50%; bottom:6px; display:inline-flex; align-items:center; gap:4px; max-width:calc(100% - 8px); transform:translateX(-50%); color:var(--rm-accent-strong); font-size:9px; font-weight:800; line-height:1; white-space:nowrap; }
+.calendar-event-badge i,.calendar-legend i { display:block; flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:var(--rm-accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--rm-accent) 14%,transparent); }
+.calendar-legend { display:flex; align-items:center; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--rm-line); color:var(--rm-muted); font-size:11px; font-weight:650; }
 
 /* Creation page prioritizes decisions and primary field labels. */
 .create-page>.create-back { justify-self:start; margin:0 0 8px; }

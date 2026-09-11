@@ -6,6 +6,7 @@
 - Course opens nearby course exploration without requiring ride creation.
 - Create preserves the selected purpose and route method while the user completes the form; Back returns without silently creating a room.
 - My Rides contains saved/group/solo ride state. Profile and notifications remain in the header.
+- My Rides calendar marks every dated group or solo ride on its local calendar day; selecting a marked date filters the list to that day's rides, while undated solo plans remain in the overall list.
 
 ## Creation and route approval
 

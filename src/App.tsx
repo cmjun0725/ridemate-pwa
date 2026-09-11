@@ -2824,10 +2824,12 @@ function RideCalendar({ plans, selectedDate, onSelectDate }: { plans: SavedPlan[
       const day = index - firstOffset + 1;
       const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const count = counts[key] ?? 0;
-      return <button type="button" key={key} className={`${selectedDate === key ? "selected" : ""} ${todayKey === key ? "today" : ""}`.trim()} aria-pressed={selectedDate === key} aria-current={todayKey === key ? "date" : undefined} aria-label={`${month.getMonth() + 1}월 ${day}일${todayKey === key ? ", 오늘" : ""}${count ? `, 라이딩 ${count}개` : ""}`} onClick={() => onSelectDate(selectedDate === key ? "" : key)}>
-        <span>{day}</span>{count > 0 && <b>{count}</b>}
+      return <button type="button" key={key} className={`${selectedDate === key ? "selected" : ""} ${todayKey === key ? "today" : ""} ${count ? "has-events" : ""}`.trim()} aria-pressed={selectedDate === key} aria-current={todayKey === key ? "date" : undefined} aria-label={`${month.getMonth() + 1}월 ${day}일${todayKey === key ? ", 오늘" : ""}${count ? `, 라이딩 ${count}개` : ""}`} onClick={() => onSelectDate(selectedDate === key ? "" : key)}>
+        <span className="calendar-day-number">{day}</span>
+        {count > 0 && <span className="calendar-event-badge" aria-hidden="true"><i />{count === 1 ? "일정" : `${count}개`}</span>}
       </button>;
     })}</div>
+    <div className="calendar-legend"><i aria-hidden="true" />일정 있는 날 · 날짜를 누르면 그날 일정만 보여요</div>
   </section>;
 }
 

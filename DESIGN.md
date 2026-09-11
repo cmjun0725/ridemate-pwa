@@ -2,7 +2,7 @@
 
 ## Product character
 
-RideMate is a Korean mobile-first cycling utility. It should feel calm, dependable, and outdoor-oriented rather than playful or decorative. The visual anchor is a deep forest navigation/hero zone, a bright mineral-mint content canvas, and a high-visibility green route accent. This split makes navigation and primary actions immediately distinct from ride data.
+RideMate is a Korean responsive cycling utility whose primary visual canvas is desktop while all core tasks remain usable on mobile. It should feel calm, dependable, and outdoor-oriented rather than playful or decorative. The visual anchor is a deep forest navigation/hero zone, a bright mineral-mint content canvas, and a high-visibility green route accent. This split makes navigation and primary actions immediately distinct from ride data.
 
 ## Visual principles
 
@@ -34,7 +34,8 @@ RideMate is a Korean mobile-first cycling utility. It should feel calm, dependab
 
 - Mobile (< 680px): single-column content, bottom navigation, 16px page gutter, borderless create form shell.
 - Tablet (680–899px): full-width content with 24px gutter and two-column repeatable cards where useful.
-- Desktop (>= 900px): top navigation and a maximum 1240px content column; creation uses a stable left choice rail and right form.
+- Desktop (>= 900px): top navigation and a maximum 1360px content column; creation uses a stable left choice rail and right form.
+- Desktop Home uses a wide editorial split hero: decisive copy on the left and a real Korean riverside riding scene on the right. The photograph is contextual, never decorative stock imagery, and keeps a stable 2:1 intrinsic ratio.
 - On Home, the ride-search surface starts below the hero's visual lead; on desktop its lower edge aligns with the hero instead of competing at the same top edge.
 - In Create, purpose and route-method controls share one two-column grid, gap, height, and horizontal alignment.
 

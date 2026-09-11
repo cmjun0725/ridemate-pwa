@@ -25,7 +25,7 @@
   color: var(--rm-text);
   line-height: 1.55;
 }
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: dark) and (max-width:0px) {
   :root { --rm-bg:#101714; --rm-surface:#18221d; --rm-soft:#202e26; --rm-text:#e7eee9; --rm-muted:#aab8ae; --rm-line:#35463a; --rm-accent:#a0ddbc; --rm-selected:#253e30; --rm-on-accent:#13251a; }
 }
 body, .app-shell { background:var(--rm-bg); color:var(--rm-text); }
@@ -638,7 +638,7 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; margi
   color-scheme:light dark;
 }
 
-@media (prefers-color-scheme:dark) {
+@media (prefers-color-scheme:dark) and (max-width:0px) {
   :root {
     --rm-bg:#07130f;
     --rm-surface:#0e1d17;
@@ -1380,4 +1380,159 @@ nav button.current,nav button.create-nav.current { background:#dff2e9; color:#07
   .create-choice-panel .purpose-tabs,.create-choice-panel .mode-cards { gap:8px; }
   .create-choice-panel .purpose-tabs button,.create-choice-panel .mode-cards button { height:56px; min-height:56px; font-size:12px; }
   .create-stage>form { padding:18px 0 0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+}
+
+/* === Cross-plugin product pass: task-led layouts, quiet controls, durable states === */
+.course-explorer { max-width:1360px; }
+.course-explorer-shell {
+  display:grid;
+  grid-template-columns:minmax(340px,.8fr) minmax(0,1.2fr);
+  gap:24px;
+  align-items:stretch;
+}
+.course-explorer-shell>form {
+  display:grid;
+  align-content:start;
+  gap:20px;
+  min-width:0;
+  margin:0;
+  padding:30px;
+  border:1px solid var(--rm-line);
+  border-radius:24px;
+  background:var(--rm-surface);
+  box-shadow:var(--rm-shadow-sm);
+}
+.course-explorer-shell>form .primary {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  min-height:54px;
+  margin-top:4px;
+}
+.course-explorer-preview {
+  position:relative;
+  min-height:520px;
+  overflow:hidden;
+  border:1px solid #234d40;
+  border-radius:24px;
+  background:#0a2f25;
+  box-shadow:0 22px 54px #12392a1c;
+}
+.course-explorer-preview::after {
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(0deg,#06251edb 0%,#06251e1f 68%),linear-gradient(90deg,#06251e38,transparent 55%);
+  pointer-events:none;
+}
+.course-explorer-preview>img {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:62% center;
+}
+.course-explorer-preview>div {
+  position:absolute;
+  z-index:1;
+  right:34px;
+  bottom:34px;
+  left:34px;
+  display:grid;
+  grid-template-columns:42px 1fr;
+  gap:4px 12px;
+  color:#f5fffb;
+}
+.course-explorer-preview>div>span {
+  grid-row:1 / span 2;
+  display:grid;
+  place-items:center;
+  width:42px;
+  height:42px;
+  border:1px solid #a9ecd25e;
+  border-radius:13px;
+  background:#0b3b2fd9;
+  color:#a9ecd2;
+}
+.course-explorer-preview b { align-self:end; font-size:20px; letter-spacing:-.55px; }
+.course-explorer-preview p { max-width:48ch; margin:0; color:#d5e9e1; font-size:13px; line-height:1.6; }
+
+.page.login-panel {
+  width:min(100%,520px);
+  max-width:520px;
+  margin-inline:auto;
+  padding-top:46px;
+}
+.login-panel>form {
+  width:100%;
+  margin-top:10px;
+  padding:24px;
+  border:1px solid var(--rm-line);
+  border-radius:22px;
+  background:var(--rm-surface);
+  box-shadow:var(--rm-shadow-sm);
+}
+.login-panel>form>.primary,.login-panel>form>.social-login { width:100%; }
+
+.profile-section-head { align-items:center; }
+.profile-section-head>h2 { margin:0; color:var(--rm-text); font-size:17px; letter-spacing:-.35px; }
+
+.select-menu .select-trigger svg { transition:transform .16s ease,color .16s ease; }
+.select-menu .select-trigger[aria-expanded="true"] svg { transform:rotate(180deg); color:var(--rm-accent); }
+.select-menu .select-options { transform-origin:top center; animation:selectOpen .14s cubic-bezier(.22,1,.36,1); }
+@keyframes selectOpen { from { opacity:.55; transform:translateY(-4px) scale(.985); } to { opacity:1; transform:none; } }
+
+.install-banner {
+  position:fixed;
+  z-index:90;
+  top:auto;
+  right:max(28px,calc((100vw - 1360px)/2));
+  bottom:28px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto 44px;
+  align-items:center;
+  gap:12px;
+  width:min(420px,calc(100vw - 32px));
+  margin:0;
+  padding:14px;
+  border:1px solid #31574a;
+  border-radius:18px;
+  background:#0a2f25;
+  color:#f5fffb;
+  box-shadow:0 22px 54px #08271d42;
+}
+.install-banner>div { display:grid; gap:3px; min-width:0; }
+.install-banner b { font-size:14px; letter-spacing:-.25px; }
+.install-banner small { overflow:hidden; color:#bfd9cf; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.install-banner>.primary { min-height:44px; padding:0 16px; border-radius:12px; box-shadow:none; }
+.install-banner>button:last-child { display:grid; place-items:center; width:44px; height:44px; border-radius:12px; color:#c7ded5; }
+.install-banner>button:last-child:hover { background:#17483a; color:#ffffff; }
+
+@media (max-width:899px) {
+  .course-explorer-shell { grid-template-columns:1fr; }
+  .course-explorer-preview { min-height:300px; }
+  .course-explorer-preview>div { right:22px; bottom:22px; left:22px; }
+}
+@media (max-width:620px) {
+  .course-explorer-shell { gap:16px; }
+  .course-explorer-shell .explore-options { grid-template-columns:1fr; }
+  .course-explorer-preview { min-height:220px; border-radius:20px; }
+  .course-explorer-preview>div { right:18px; bottom:18px; left:18px; }
+  .course-explorer-preview p { display:none; }
+  .course-explorer-shell>form { padding:20px; border-radius:20px; }
+  .page.login-panel { padding-top:28px; }
+  .login-panel>form { padding:20px; border-radius:20px; }
+  .install-banner {
+    right:16px;
+    bottom:calc(82px + env(safe-area-inset-bottom));
+    left:16px;
+    grid-template-columns:minmax(0,1fr) auto 44px;
+    width:auto;
+    padding:12px;
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .select-menu .select-options { animation:none; }
+  .select-menu .select-trigger svg { transition:none; }
 }

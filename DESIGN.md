@@ -46,3 +46,10 @@ RideMate is a Korean responsive cycling utility whose primary visual canvas is d
 - Selection is shown with background, border, and text/icon changes—not color alone.
 - Feedback uses the shared toast system plus field-level validation where correction is required.
 - Motion is short and optional; `prefers-reduced-motion` disables decorative transitions.
+
+## Plugin-informed component direction
+
+- Lumen UI informs component intent: search uses a dedicated search surface, choice controls expose selected state, forms retain inline labels, and empty states offer one clear next action.
+- UIAudit is the release gate for accessibility, responsive behavior, theming, performance, and implementation consistency.
+- Frontend Design Premium governs the visual system: task-first hierarchy, restrained depth, product-specific imagery, and no decorative nested cards.
+- Figma auto-layout principles map to CSS Grid and flexible sizing: content hugs where appropriate, task panels fill available width, and desktop compositions collapse to one column without fixed-width overflow.

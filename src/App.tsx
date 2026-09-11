@@ -1939,6 +1939,7 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
   return (
     <section className="page course-explorer">
       <h1>주변 자전거 코스 찾기</h1>
+      <div className="course-explorer-shell">
       <form noValidate onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -1964,8 +1965,23 @@ function CourseExplorer({ onCreate }: { onCreate: () => void }) {
         </div>
         <fieldset><legend>코스 형태</legend><div className="segmented"><button type="button" className={tripType === "round" ? "active" : ""} onClick={() => setTripType("round")}>왕복·순환</button><button type="button" className={tripType === "oneway" ? "active" : ""} onClick={() => setTripType("oneway")}>편도</button></div></fieldset>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="primary wide" disabled={loading}>{loading ? "자전거 경로와 고도 분석 중…" : "주변 코스 3개 탐색"}</button>
+        <button className="primary wide" disabled={loading}>{loading ? "자전거 경로와 고도 분석 중…" : <><Compass size={18} aria-hidden="true" />주변 코스 3개 탐색</>}</button>
       </form>
+      <aside className="course-explorer-preview" aria-label="코스 탐색 안내">
+        <img
+          src={`${import.meta.env.BASE_URL}ridemate-hero.webp`}
+          alt="강변 자전거도로를 달리는 라이더들"
+          width="1600"
+          height="800"
+          loading="lazy"
+        />
+        <div>
+          <span><Route size={18} aria-hidden="true" /></span>
+          <b>출발지에서 바로 찾습니다</b>
+          <p>장소를 정확히 선택하면 거리와 고도를 비교한 자전거 코스 3개를 지도에 보여드려요.</p>
+        </div>
+      </aside>
+      </div>
     </section>
   );
 }
@@ -2425,7 +2441,7 @@ function ProfileTools() {
         }}
       >
         <section className="profile-section">
-          <div className="profile-section-head"><span>01</span><div><h2>기본 정보</h2><small>다른 라이더에게 보이는 정보예요.</small></div></div>
+          <div className="profile-section-head"><h2>기본 정보</h2></div>
           <label>닉네임<input name="displayName" minLength={2} maxLength={20} defaultValue={settings.displayName} placeholder="다른 라이더에게 보일 이름" /></label>
           <div className="verification-row">
             <ShieldCheck />
@@ -2434,14 +2450,14 @@ function ProfileTools() {
           </div>
         </section>
         <section className="profile-section">
-          <div className="profile-section-head"><span>02</span><div><h2>비상 연락처</h2><small>긴급 상황을 대비해 본인만 관리합니다.</small></div></div>
+          <div className="profile-section-head"><h2>비상 연락처</h2></div>
           <div className="two">
             <label>연락 대상<input name="emergencyName" defaultValue={settings.safety.emergencyName} placeholder="예: 가족" /></label>
             <label>전화번호<input name="emergencyPhone" inputMode="tel" autoComplete="tel" defaultValue={settings.safety.emergencyPhone} placeholder="01012345678" /></label>
           </div>
         </section>
         <section className="profile-section notification-section" id="notification-settings" tabIndex={-1}>
-          <div className="profile-section-head"><span>03</span><div><h2>알림</h2><small>받고 싶은 알림만 선택하세요.</small></div></div>
+          <div className="profile-section-head"><h2>알림</h2></div>
           <label className="switch-row">
           <span><b>라이딩 일정·참여</b><small>출발 시간과 방 참여 상태를 알려드려요.</small></span>
           <input
@@ -3317,8 +3333,8 @@ export default function App() {
       {installPrompt && (
         <aside className="install-banner" role="complementary" aria-label="앱 설치 안내">
           <div>
-            <b>Add RIDEMATE to Home Screen</b>
-            <small>Launch faster and view recent routes offline.</small>
+            <b>라이드메이트 앱 설치</b>
+            <small>홈 화면에서 더 빠르게 열 수 있어요.</small>
           </div>
           <button
             className="primary"

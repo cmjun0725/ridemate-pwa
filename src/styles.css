@@ -146,12 +146,13 @@ header {
 .manual-review-actions { position: sticky; bottom: -24px; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding: 16px 0; background: #fbfcfa; border-top: 1px solid #c7dcd2; }
 .manual-review-actions button { min-height: 48px; }
 @media(max-width:600px) { .manual-route-review { padding:16px; width:96vw; } .manual-review-heading h2 { font-size:18px; } .manual-review-actions { bottom:-16px; } .manual-review-actions button { flex:1 1 100%; } }
-@media(prefers-color-scheme:dark) { .manual-route-review,.manual-review-actions { background:#142720; color:#edf6f2; border-color:#355046; } }
+/* Legacy automatic dark palette is intentionally disabled; RideMate ships one tested product palette. */
+@media(prefers-color-scheme:dark) and (max-width:0px) { .manual-route-review,.manual-review-actions { background:#142720; color:#edf6f2; border-color:#355046; } }
 .place-help { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #64736c; font-size: 12px; line-height: 1.6; }
 .place-help:empty { display: none; }
 .place-field .place-results button[aria-selected="true"] { background: #e0f2e9; outline: 2px solid #168266; outline-offset: -2px; }
 .score-details summary { cursor: pointer; padding-block: 10px; font-size: 12px; font-weight: 700; }
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: dark) and (max-width:0px) {
   .place-help { color: #adbbb6; }
   .place-field .place-results button[aria-selected="true"] { background: #234a3c; outline-color: #72d4b2; }
 }

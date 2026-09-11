@@ -4,6 +4,7 @@ import { CancelRideButton } from "./CancelRideButton";
 import { toast } from "./toast";
 import {
   Bell,
+  Bike,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -3134,12 +3135,46 @@ export default function App() {
   ) : (
     <section className="page home-page">
       <div className="hero">
-        <h1>
-          오늘 함께 달릴
-          <br />
-          라이딩을 찾아보세요
-        </h1>
-        <button className="hero-action" onClick={() => setTab("create")}><Plus size={19} aria-hidden="true" />새 라이딩 만들기</button>
+        <div className="hero-copy">
+          <h1>
+            오늘 함께 달릴
+            <br />
+            라이딩을 찾아보세요
+          </h1>
+          <button className="hero-action" onClick={() => setTab("create")}><Plus size={19} aria-hidden="true" />새 라이딩 만들기</button>
+        </div>
+        <div className="hero-visual" aria-hidden="true">
+          <span className="hero-visual-chip"><Bike size={16} /> 검증된 코스</span>
+          <svg viewBox="0 0 460 230" className="hero-visual-art">
+            <defs>
+              <linearGradient id="hvRoute" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0" stopColor="#9df0cd" />
+                <stop offset="1" stopColor="#d8f7e9" />
+              </linearGradient>
+              <linearGradient id="hvArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#9df0cd40" />
+                <stop offset="1" stopColor="#9df0cd08" />
+              </linearGradient>
+            </defs>
+            <g stroke="#ffffff14">
+              <line x1="30" y1="52" x2="430" y2="52" />
+              <line x1="30" y1="112" x2="430" y2="112" />
+              <line x1="30" y1="172" x2="430" y2="172" />
+            </g>
+            <path d="M40 168 C 110 128, 150 182, 215 140 C 275 104, 335 150, 420 62" stroke="url(#hvRoute)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <path d="M40 168 C 110 128, 150 182, 215 140 C 275 104, 335 150, 420 62 L 420 196 L 40 196 Z" fill="url(#hvArea)" />
+            <circle cx="40" cy="168" r="9" fill="#9df0cd" stroke="#062018" strokeWidth="3" />
+            <circle cx="40" cy="168" r="3.4" fill="#062018" />
+            <text x="40" y="190" fill="#cdeee0" fontSize="13" fontWeight="700" textAnchor="middle">출발</text>
+            <circle cx="420" cy="62" r="9" fill="#8ab8ff" stroke="#062018" strokeWidth="3" />
+            <circle cx="420" cy="62" r="3.4" fill="#062018" />
+            <text x="420" y="42" fill="#cfe2ff" fontSize="13" fontWeight="700" textAnchor="middle">도착</text>
+          </svg>
+          <div className="hero-visual-stats">
+            <span><Route size={14} /> 왕복·순환</span>
+            <span><Mountain size={14} /> 고도 검증</span>
+          </div>
+        </div>
       </div>
       <section className="home-search-panel" aria-labelledby="ride-search-title">
       <h2 id="ride-search-title">라이딩 찾기</h2>

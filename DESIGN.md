@@ -2,16 +2,18 @@
 
 ## Product character
 
-RideMate is a Korean mobile-first cycling utility. It should feel calm, dependable, and outdoor-oriented rather than playful or decorative. The visual anchor is a deep forest surface with a high-visibility mint route accent, derived from the earlier GitHub Pages design the product owner preferred.
+RideMate is a Korean mobile-first cycling utility. It should feel calm, dependable, and outdoor-oriented rather than playful or decorative. The visual anchor is a deep forest navigation/hero zone, a bright mineral-mint content canvas, and a high-visibility green route accent. This split makes navigation and primary actions immediately distinct from ride data.
 
 ## Visual principles
 
 - Show the next useful action before explanatory copy.
+- Use dark forest for orientation and bright surfaces for reading, forms, and data.
 - Use one strong green accent; reserve red, amber, and blue for semantic states.
 - Avoid nested cards. One surface groups one task; fields and dividers provide internal structure.
 - Keep primary Korean text at 14px or larger and supporting text at 12px or larger.
 - Use rounded corners selectively: 14px controls, 18px task surfaces, pill shapes only for compact filters and status.
 - Route/map content should have the largest visual area in route confirmation and ride detail flows.
+- Avoid automatic system-dark recoloring; RideMate uses one deliberate high-contrast product palette across devices.
 
 ## Runtime tokens
 
